@@ -1,0 +1,8 @@
+{
+  "name": "rpgfactory",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node --env-file=.env server.js"
+  }
+}

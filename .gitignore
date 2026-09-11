@@ -1,0 +1,7 @@
+node_modules/
+.env
+*.log
+
+# arta e sub licență cu restricție de redistribuire (vezi assets/README.md) —
+# nu intră deloc în git, nici brută, nici exportată
+assets/
