@@ -1,7 +1,11 @@
 node_modules/
 .env
 *.log
+data/
 
 # arta e sub licență cu restricție de redistribuire (vezi assets/README.md) —
 # nu intră deloc în git, nici brută, nici exportată
 assets/
+# sprite-urile exportate sunt servite din public/ (ca să le vadă browserul),
+# dar rămân sub aceeași restricție de licență — nu intră în git nici de aici
+public/sprites/

@@ -2,23 +2,16 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>agent-map skeleton</title>
-<style>
-  body{ font-family: monospace; background:#111; color:#0f0; padding:20px; }
-  pre{ white-space: pre-wrap; }
-</style>
+<title>agent-map</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h3>agent-map — schelet de test (fără design, doar date)</h3>
-  <pre id="out">se încarcă...</pre>
-  <script>
-    async function tick(){
-      const res = await fetch('/api/agents');
-      const data = await res.json();
-      document.getElementById('out').textContent = JSON.stringify(data, null, 2);
-    }
-    tick();
-    setInterval(tick, 3000);
-  </script>
+  <h3 id="title">agent-map</h3>
+  <canvas id="canvas"></canvas>
+  <div id="details" class="details hidden"></div>
+  <div id="hidden-panel"></div>
+  <script src="/merge-state.js"></script>
+  <script src="/zones.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

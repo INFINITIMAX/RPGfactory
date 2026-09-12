@@ -1,0 +1,2259 @@
+// Teste pentru logica din public/app.js (T-01, extins la T-04/T-07).
+//
+// app.js este un script clasic (nu modul), fără `export`-uri, care la
+// încărcare face imediat `document.getElementById(...)`, înregistrează un
+// listener de click și pornește un poll (`fetch` + `setInterval`). Nu poate
+// fi `require`/`import`-at direct în Node fără `document`/`fetch` globale.
+//
+// Ca să testăm codul REAL (nu o reimplementare a lui), îl încărcăm cu
+// `node:vm` într-un context sandbox unde `document`, `fetch`, `setInterval`,
+// `setTimeout` sunt simulate minimal (doar cât să nu arunce la încărcare /
+// click). Funcțiile declarate cu `function` la nivel de script
+// (hashToCellIndex, cellIndexToPosition, colorForActivity, draw,
+// renderDetails, tick, hideAgent, unhideAgent, queueSave, saveState,
+// initState) devin proprietăți ale obiectului global din sandbox și pot fi
+// apelate direct. Variabilele `let`/`const` (agents, selectedSessionId,
+// state, baseUpdatedAt, baseSnapshot, GRID_COLS, ...) NU devin proprietăți
+// globale — de-asta starea internă e controlată exclusiv prin `tick()` /
+// `hideAgent()` / `unhideAgent()` + mock de `fetch`, iar efectele lor sunt
+// verificate INDIRECT: prin ce desenează `draw()` (spy-uri pe canvas), prin
+// ce randează `renderDetails()`/`renderHiddenList()` (innerHTML) și prin
+// corpul cererilor `PUT /api/state` capturate de mock-ul de `fetch`.
+//
+// T-07: app.js are acum nevoie de `mergeState` (global, încărcat separat din
+// public/merge-state.js printr-un <script> distinct în index.html — nu prin
+// require/import). Îl încărcăm cu vm.runInContext în ACELAȘI context, ÎNAINTE
+// de app.js, la fel cum s-ar întâmpla prin ordinea reală a <script>-urilor.
+//
+// T-07: bootstrap-ul de la coada fișierului e acum
+// `initState().then(() => { tick(); setInterval(tick, ...); })` — adică
+// primul `tick()` rulează abia după ce `/api/state` a fost încărcat, asincron.
+// `loadApp()` a devenit deci o funcție ASYNC: după `vm.runInContext`, așteaptă
+// un flush de microtask-uri (`await new Promise(r => setImmediate(r))`)
+// înainte să întoarcă handle-ul de test, ca acel lanț inițial să se fi
+// terminat. Toate testele (inclusiv cele vechi, sincrone înainte) fac acum
+// `await loadApp()`.
+//
+// T-10: app.js folosește acum `allocateCells` din public/zones.js (global,
+// încărcat separat printr-un <script> distinct în index.html, la fel ca
+// merge-state.js). Îl încărcăm cu vm.runInContext în ACELAȘI context, ÎNAINTE
+// de app.js — altfel orice tick() (deci orice test care apelează
+// setAgents()/tick()) ar arunca `ReferenceError: allocateCells is not
+// defined`. Fiindcă `allocateCells`, `cellForAgent`, `zoneCellToPixels`,
+// `computeAgentPositions`, `colorForProject`, `drawZones` sunt toate
+// declarate cu `function` la nivel de script, devin proprietăți ale
+// obiectului global din sandbox, exact ca hashToCellIndex/draw/tick — pot fi
+// apelate direct din teste ca oracol independent pentru poziții așteptate.
+//
+// T-12: app.js are acum o cameră 2D (`camera = {x,y,zoom}`, `const` la nivel
+// de script — NU devine proprietate globală în sandbox, la fel ca
+// `agents`/`state`). `worldToScreen`/`screenToWorld` SUNT accesibile direct
+// (declarate cu `function`) și sunt folosite ca sondă indirectă: citesc
+// `camera` intern, deci putem deduce zoom/translație din diferența dintre
+// două puncte transformate, fără să atingem `camera` direct (vezi
+// `getZoom()` mai jos). De asemenea:
+//   - canvas.width/height NU mai sunt fixe (720 hardcodat în index.html) —
+//     vin din `resizeCanvas()`, care citește `window.innerWidth/innerHeight`.
+//     Sandbox-ul nu avea deloc `window` — a trebuit adăugat (vezi fakeWindow
+//     mai jos), altfel orice `loadApp()` arunca ReferenceError la încărcare.
+//   - hit-test-ul de click NU mai e pe un listener 'click' de pe canvas —
+//     s-a mutat în 'mouseup' de pe `window` (pan-ul trebuie să continue chiar
+//     dacă mouse-ul e eliberat în afara canvas-ului). Helper-ul `click()`
+//     de mai jos simulează acum mousedown+mouseup fără mișcare, nu mai
+//     invocă direct un handler 'click' inexistent.
+//   - dimensiunea mock-ului de canvas a fost fixată la 720x720 (păstrată
+//     identică cu valoarea folosită deja în acest fișier pentru
+//     GRID_OFFSET/TEST_SPAWN_POINT etc., ca să minimizăm schimbările în
+//     testele T-04/T-07/T-10/T-11 care nu au legătură cu camera).
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const APP_JS_PATH = path.join(__dirname, '..', 'public', 'app.js');
+const APP_SOURCE = fs.readFileSync(APP_JS_PATH, 'utf8');
+const MERGE_STATE_JS_PATH = path.join(__dirname, '..', 'public', 'merge-state.js');
+const MERGE_STATE_SOURCE = fs.readFileSync(MERGE_STATE_JS_PATH, 'utf8');
+const ZONES_JS_PATH = path.join(__dirname, '..', 'public', 'zones.js');
+const ZONES_SOURCE = fs.readFileSync(ZONES_JS_PATH, 'utf8');
+
+function defaultDiskState() {
+  return { version: 1, archived: [], archivedAt: {}, plots: {}, updatedAt: 0 };
+}
+
+// T-10: `computeAgentPositions()` din app.js citește poziția unui agent din
+// `state.plots[agent.cwd]` (populat REAL de tick()-ul declanșat de
+// `setAgents()`, prin allocateCells din zones.js), nu mai dintr-o grilă
+// globală. Pentru un singur agent, jitter-ul nu se aplică (grup de 1), deci
+// apelând chiar funcția de producție pe care draw()/click-ul o folosesc
+// obținem poziția exactă așteptată, fără să reimplementăm algoritmul de
+// alocare a zonelor în teste.
+// T-12: `computeAgentPositions()` întoarce acum coordonate de LUME (nu mai
+// coincid cu pixelii de ecran, de când există `camera`). Poziția de ecran
+// pe care o citesc draw()/hit-test-ul de click e `worldToScreen(worldPos)`.
+// Convertim aici o singură dată, ca toate testele care foloseau deja acest
+// helper (comparând cu drawImage/arc, sau apelând app.click(pos.x,pos.y))
+// să primească direct coordonate de ECRAN, consistente cu ce desenează/
+// citește app.js — fără să atingă fiecare test individual.
+function agentPixelPosition(app, agent) {
+  const worldPos = app.sandbox.computeAgentPositions([agent]).get(agent.sessionId);
+  assert.ok(
+    worldPos,
+    `nu am putut calcula poziția așteptată pentru ${agent.sessionId} (state.plots gol pentru cwd-ul lui?)`
+  );
+  return app.sandbox.worldToScreen(worldPos.x, worldPos.y);
+}
+
+async function loadApp(options = {}) {
+  const fillTextCalls = [];
+  const consoleLogCalls = [];
+
+  // T-04: spy-uri pentru sprite-ul animat — drawImage/arc/strokeRect/fill
+  // trebuie observate ca să verificăm CE anume desenează draw(), nu doar
+  // că nu aruncă.
+  const drawImageCalls = [];
+  const arcCalls = [];
+  const strokeRectCalls = [];
+  const strokeRectStyles = []; // T-13: strokeStyle activ la momentul fiecărui strokeRect (index-corespondent)
+  const fillCalls = [];
+  // T-10: `drawZones()` cheamă `ctx.fillRect(...)` necondiționat pentru
+  // fundalul fiecărei celule de zonă — lipsea din mock (doar strokeRect
+  // exista), ceea ce ar fi aruncat `ctx.fillRect is not a function` la orice
+  // draw() cu cel puțin un proiect în `state.plots`.
+  const fillRectCalls = [];
+  const fillRectStyles = []; // T-13: fillStyle activ la momentul fiecărui fillRect (index-corespondent)
+  // T-14: jurnal UNIFICAT de apeluri fillRect/drawImage, în ordinea EXACTĂ în
+  // care au fost făcute — necesar ca să verificăm ORDINEA de desenare (norii
+  // înaintea zonelor), lucru pe care fillRectCalls/drawImageCalls separate
+  // (fiecare cu propriul index intern) nu îl pot reda.
+  const callOrder = [];
+
+  const fakeCtx = {
+    fillStyle: undefined,
+    clearRect() {},
+    beginPath() {},
+    arc(...args) {
+      arcCalls.push(args);
+    },
+    fillRect(...args) {
+      fillRectCalls.push(args);
+      // T-13: reținem și fillStyle-ul activ în momentul fiecărui fillRect
+      // (indice corespunzător în fillRectStyles), ca să putem verifica dacă
+      // umplerea a folosit pattern-ul de apă/iarbă sau culoarea plată.
+      fillRectStyles.push(fakeCtx.fillStyle);
+      callOrder.push({ type: 'fillRect', args });
+    },
+    fill() {
+      // Reținem fillStyle-ul activ în momentul chemării lui fill(), ca să
+      // putem verifica ulterior ce culoare a fost folosită la desenarea
+      // indicatorului de status (draw() setează fillStyle chiar înainte de
+      // fill(), apoi îl schimbă din nou pentru text — dar fillText nu
+      // trece prin fill()).
+      fillCalls.push({ fillStyle: fakeCtx.fillStyle });
+    },
+    stroke() {},
+    strokeRect(...args) {
+      strokeRectCalls.push(args);
+      // T-13: reținem strokeStyle-ul activ la fiecare strokeRect (index-
+      // corespondent), ca să verificăm că apariția pattern-ului de umplere
+      // (fillStyle) nu afectează conturul (strokeStyle rămâne culoarea de
+      // proiect din ZONE_PALETTE, ca la T-10).
+      strokeRectStyles.push(fakeCtx.strokeStyle);
+    },
+    drawImage(...args) {
+      drawImageCalls.push(args);
+      callOrder.push({ type: 'drawImage', args });
+    },
+    fillText(text, x, y) {
+      fillTextCalls.push({ text, x, y });
+    },
+    // T-13: fundal de apă + iarbă, create o singură dată la onload ca
+    // CanvasPattern. Nu ne interesează randarea reală (nu avem canvas real),
+    // doar că apelul nu aruncă — întoarcem un marker simplu.
+    createPattern() {
+      return { __fakePattern: true };
+    },
+  };
+
+  // T-12: canvas nu mai are un listener 'click' — vezi comentariul din capul
+  // fișierului. Înregistrează 'mousedown' (start pan) și 'wheel' (zoom).
+  // Aruncă explicit pe orice tip de eveniment neprevăzut.
+  let canvasMouseDownHandler = null;
+  let canvasWheelHandler = null;
+  const fakeCanvas = {
+    width: 720,
+    height: 720,
+    getContext: () => fakeCtx,
+    addEventListener: (type, handler) => {
+      if (type === 'mousedown') {
+        canvasMouseDownHandler = handler;
+        return;
+      }
+      if (type === 'wheel') {
+        canvasWheelHandler = handler;
+        return;
+      }
+      throw new Error(`canvas.addEventListener: eveniment neprevăzut "${type}"`);
+    },
+    getBoundingClientRect: () => ({ left: 0, top: 0 }),
+  };
+
+  // T-12: `window` — folosit de resizeCanvas() (innerWidth/innerHeight), de
+  // 'resize', și de 'mousemove'/'mouseup' (înregistrate pe window, nu pe
+  // canvas, ca pan-ul să continue chiar dacă mouse-ul iese din canvas).
+  // Dimensiune fixată la 720x720, identică cu fakeCanvas de mai sus.
+  let windowResizeHandler = null;
+  let windowMouseMoveHandler = null;
+  let windowMouseUpHandler = null;
+  const fakeWindow = {
+    innerWidth: 720,
+    innerHeight: 720,
+    addEventListener: (type, handler) => {
+      if (type === 'resize') {
+        windowResizeHandler = handler;
+        return;
+      }
+      if (type === 'mousemove') {
+        windowMouseMoveHandler = handler;
+        return;
+      }
+      if (type === 'mouseup') {
+        windowMouseUpHandler = handler;
+        return;
+      }
+      throw new Error(`window.addEventListener: eveniment neprevăzut "${type}"`);
+    },
+  };
+
+  const fakeDetails = {
+    _classes: new Set(['details', 'hidden']),
+    classList: {
+      add(c) {
+        fakeDetails._classes.add(c);
+      },
+      remove(c) {
+        fakeDetails._classes.delete(c);
+      },
+    },
+    textContent: '',
+    innerHTML: '',
+  };
+
+  // T-03 adaugă un buton "Open" + un span de eroare în interiorul HTML-ului
+  // generat de renderDetails() (ca string, prin innerHTML). Mock-ul nu are
+  // un parser DOM real, deci nu "vede" acele elemente apărând singure din
+  // innerHTML — le înregistrăm explicit aici, ca app.js să le poată găsi
+  // prin document.getElementById(), exact cum ar face-o într-un browser real.
+  let openBtnClickHandler = null;
+  const fakeOpenBtn = {
+    addEventListener: (type, handler) => {
+      if (type === 'click') openBtnClickHandler = handler;
+    },
+  };
+  const fakeOpenError = {
+    textContent: '',
+  };
+
+  // T-07: butonul "Hide" din renderDetails(), la fel de "invizibil" pentru
+  // un mock fără parser DOM ca open-btn/open-error mai sus.
+  let hideBtnClickHandler = null;
+  const fakeHideBtn = {
+    addEventListener: (type, handler) => {
+      if (type === 'click') hideBtnClickHandler = handler;
+    },
+  };
+
+  // T-07: butoanele de toggle din renderHiddenList() ("Arată ascunși (N)" /
+  // "Ascunde lista (N)"). Id-ul lor există doar în una din cele două ramuri
+  // (în funcție de `showHidden`), dar app.js face document.getElementById
+  // imediat după ce a setat innerHTML pe hiddenPanelEl — trebuie să existe
+  // mock pentru amândouă, indiferent care e activă la un moment dat.
+  let showHiddenBtnClickHandler = null;
+  const fakeShowHiddenBtn = {
+    addEventListener: (type, handler) => {
+      if (type === 'click') showHiddenBtnClickHandler = handler;
+    },
+  };
+  let hideHiddenBtnClickHandler = null;
+  const fakeHideHiddenBtn = {
+    addEventListener: (type, handler) => {
+      if (type === 'click') hideHiddenBtnClickHandler = handler;
+    },
+  };
+
+  // T-07: `#hidden-panel` — app.js îi face doar `.innerHTML = ...` și, când
+  // lista e extinsă, `.querySelectorAll('.unhide-btn').forEach(...)`. Fără
+  // parser DOM real, simulăm querySelectorAll extrăgând `data-session-id`
+  // direct din stringul de innerHTML pe care app.js tocmai l-a scris.
+  const unhideClickHandlers = new Map(); // sessionId -> handler
+  const fakeHiddenPanel = {
+    innerHTML: '',
+    querySelectorAll(selector) {
+      if (selector !== '.unhide-btn') return [];
+      const ids = [...fakeHiddenPanel.innerHTML.matchAll(/data-session-id="([^"]*)"/g)].map((m) => m[1]);
+      return ids.map((sessionId) => ({
+        dataset: { sessionId },
+        addEventListener: (type, handler) => {
+          if (type === 'click') unhideClickHandlers.set(sessionId, handler);
+        },
+      }));
+    },
+  };
+
+  // T-04: `new Image()` trebuie să întoarcă un obiect a cărui referință o
+  // putem prinde din exterior, ca să putem apela manual `onload` (imitând
+  // încărcarea reală a sprite-ului) — la fel cum am prins `clickHandler`
+  // mai sus. `pawnImage` din app.js e exact obiectul push-uit aici, pentru
+  // că app.js face `new Image()` o singură dată, la nivel de script.
+  const imageInstances = [];
+  function FakeImage() {
+    imageInstances.push(this);
+  }
+
+  // T-04: app.js pornește DOUĂ setInterval-uri distincte — unul pentru
+  // poll (`tick`, la POLL_INTERVAL_MS = 3000ms) și unul pentru animația
+  // sprite-ului (la SPRITE_ANIMATION_INTERVAL_MS = 125ms). Le distingem
+  // după valoarea `ms` (animația e sub 1 secundă, poll-ul nu), nu după
+  // ordinea apelurilor, ca testul să nu depindă de ordinea liniilor din
+  // app.js.
+  const intervalCallbacks = [];
+  function fakeSetInterval(fn, ms) {
+    intervalCallbacks.push({ fn, ms });
+    return intervalCallbacks.length;
+  }
+
+  // T-07: `queueSave()` foloseşte `setTimeout`/`clearTimeout` pentru debounce
+  // (500ms). Simulăm timer-ele manual, ca testele să controleze exact când
+  // "trece" timpul, în loc să aștepte 500ms reale.
+  let nextTimerId = 1;
+  const pendingTimers = new Map(); // id -> { fn, ms }
+  function fakeSetTimeout(fn, ms) {
+    const id = nextTimerId++;
+    pendingTimers.set(id, { fn, ms });
+    return id;
+  }
+  function fakeClearTimeout(id) {
+    pendingTimers.delete(id);
+  }
+
+  // T-07: fetch trebuie să distingă /api/state (GET la pornire, PUT la
+  // salvare) de /api/agents (GET la fiecare tick). Stare mutabilă a
+  // mock-ului, controlabilă din teste prin helper-ele întoarse mai jos.
+  let stateOnDisk = options.initialState || defaultDiskState();
+  let agentsOnServer = [];
+  let putStateImpl = null; // (body) => ({ ok, status, json }) — dacă null, comportament implicit de succes
+  const putCalls = [];
+
+  async function mockFetch(url, options) {
+    const method = (options && options.method) || 'GET';
+    if (url === '/api/agents' && method === 'GET') {
+      return { ok: true, status: 200, json: async () => agentsOnServer };
+    }
+    if (url === '/api/state' && method === 'GET') {
+      return { ok: true, status: 200, json: async () => stateOnDisk };
+    }
+    if (url === '/api/state' && method === 'PUT') {
+      const body = JSON.parse(options.body);
+      putCalls.push(body);
+      if (putStateImpl) return putStateImpl(body);
+      const saved = { version: 1, archived: body.archived, archivedAt: body.archivedAt, updatedAt: Date.now() };
+      stateOnDisk = saved;
+      return { ok: true, status: 200, json: async () => saved };
+    }
+    throw new Error(`fetch mock: cerere neașteptată ${method} ${url}`);
+  }
+
+  // T-13: vezi comentariul de la document.createElement mai jos.
+  const offscreenCreateCalls = [];
+  const offscreenDrawImageCalls = [];
+
+  const sandbox = {
+    window: fakeWindow,
+    document: {
+      getElementById: (id) => {
+        if (id === 'canvas') return fakeCanvas;
+        if (id === 'details') return fakeDetails;
+        if (id === 'hidden-panel') return fakeHiddenPanel;
+        if (id === 'open-btn') return fakeOpenBtn;
+        if (id === 'open-error') return fakeOpenError;
+        if (id === 'hide-btn') return fakeHideBtn;
+        if (id === 'show-hidden-btn') return fakeShowHiddenBtn;
+        if (id === 'hide-hidden-btn') return fakeHideHiddenBtn;
+        throw new Error(`element necunoscut: ${id}`);
+      },
+      // T-13: canvas-ul offscreen folosit ca să decupăm o singură dată
+      // peticul de iarbă din tilemap. Context minimal, separat de fakeCtx
+      // (nu vrem ca drawImage-ul de decupare să polueze drawImageCalls,
+      // care urmărește doar ce se desenează pe canvas-ul PRINCIPAL).
+      // Ținem evidența de câte ori s-a creat un canvas offscreen și cu ce
+      // argumente s-a apelat drawImage() pe contextul lui, ca să verificăm
+      // din teste decuparea peticului de iarbă (o singură dată, coordonate
+      // exacte) fără să atingem randarea vizuală reală.
+      createElement: (tag) => {
+        if (tag !== 'canvas') throw new Error(`createElement necunoscut: ${tag}`);
+        offscreenCreateCalls.push(tag);
+        const offscreenCanvas = {
+          width: 0,
+          height: 0,
+          getContext: () => ({
+            drawImage(...args) {
+              offscreenDrawImageCalls.push(args);
+            },
+          }),
+        };
+        return offscreenCanvas;
+      },
+    },
+    fetch: (url, options) => mockFetch(url, options),
+    setInterval: fakeSetInterval,
+    setTimeout: fakeSetTimeout,
+    clearTimeout: fakeClearTimeout,
+    Image: FakeImage,
+    console: { log: (...args) => consoleLogCalls.push(args) },
+    Math,
+    Date,
+    structuredClone,
+  };
+
+  vm.createContext(sandbox);
+  vm.runInContext(MERGE_STATE_SOURCE, sandbox, { filename: 'merge-state.js' });
+  vm.runInContext(ZONES_SOURCE, sandbox, { filename: 'zones.js' });
+  vm.runInContext(APP_SOURCE, sandbox, { filename: 'app.js' });
+
+  // T-07: la finalul lui runInContext, `initState().then(() => { tick(); ... })`
+  // a fost DECLANȘAT, dar nu neapărat TERMINAT (fetch-ul mock e async).
+  // Niciun timer real nu intervine în acel lanț (fetch mock rezolvă direct
+  // prin microtask-uri), deci un singur flush către coada de macrotask-uri
+  // (setImmediate) e suficient ca Node să golească toate microtask-urile
+  // înlănțuite (fetch -> json -> then -> tick -> fetch -> json -> draw).
+  await new Promise((resolve) => setImmediate(resolve));
+
+  return {
+    sandbox,
+    fillTextCalls,
+    consoleLogCalls,
+    fakeDetails,
+    fakeHiddenPanel,
+    drawImageCalls,
+    arcCalls,
+    strokeRectCalls,
+    strokeRectStyles,
+    fillCalls,
+    fillRectCalls,
+    fillRectStyles,
+    callOrder,
+    // T-12: `click(x,y)` simulează un click simplu (mousedown + mouseup fără
+    // mișcare, deci sub pragul de 4px de drag) — NU mai există un listener
+    // 'click' separat, dar comportamentul echivalent (selecție prin hit-test)
+    // se obține exact prin acest flux, la fel ca într-un browser real.
+    mouseDown(x, y) {
+      assert.ok(canvasMouseDownHandler, 'mousedown handler nu a fost înregistrat de app.js pe canvas');
+      canvasMouseDownHandler({ clientX: x, clientY: y });
+    },
+    mouseMove(x, y) {
+      assert.ok(windowMouseMoveHandler, 'mousemove handler nu a fost înregistrat de app.js pe window');
+      windowMouseMoveHandler({ clientX: x, clientY: y });
+    },
+    mouseUp(x, y) {
+      assert.ok(windowMouseUpHandler, 'mouseup handler nu a fost înregistrat de app.js pe window');
+      windowMouseUpHandler({ clientX: x, clientY: y });
+    },
+    click(x, y) {
+      this.mouseDown(x, y);
+      this.mouseUp(x, y);
+    },
+    wheel(x, y, deltaY) {
+      assert.ok(canvasWheelHandler, 'wheel handler nu a fost înregistrat de app.js pe canvas');
+      canvasWheelHandler({ clientX: x, clientY: y, deltaY, preventDefault: () => {} });
+    },
+    // Simulează evenimentul `resize` al ferestrei: schimbă window.innerWidth/
+    // innerHeight ÎNAINTE de a chema handler-ul capturat (exact ordinea reală:
+    // fereastra se redimensionează, ABIA APOI se declanșează evenimentul).
+    resize(width, height) {
+      fakeWindow.innerWidth = width;
+      fakeWindow.innerHeight = height;
+      assert.ok(windowResizeHandler, 'resize handler nu a fost înregistrat de app.js pe window');
+      windowResizeHandler();
+    },
+    async setAgents(agentList) {
+      // T-07: NU mai înlocuim `sandbox.fetch` global (asta ar strica
+      // /api/state) — doar schimbăm ce întoarce mock-ul pentru /api/agents.
+      agentsOnServer = agentList;
+      await sandbox.tick();
+    },
+    // Simulează evenimentul `onload` al imaginii sprite-ului (pawn-idle).
+    // Corecție planner (T-13): găsim instanța după `.src`, nu după index fix
+    // — T-13 a adăugat două `new Image()` NOI (apă, teren) ÎNAINTEA lui
+    // `pawnImage` în script, deci `imageInstances[0]` nu mai e pawn-idle.
+    // Căutarea după `.src` rămâne corectă indiferent de câte imagini noi se
+    // mai adaugă în viitor, în orice ordine.
+    triggerImageLoad() {
+      const img = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('pawn-idle'));
+      assert.ok(img, 'app.js n-a instanțiat nicio Image() cu src conținând "pawn-idle"');
+      assert.equal(typeof img.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea pawn-idle');
+      img.onload();
+    },
+    // T-13: simulează evenimentul `onload` al imaginii de fundal de apă
+    // (water-bg), analog cu triggerImageLoad() de mai sus.
+    triggerWaterImageLoad() {
+      const img = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('water-bg'));
+      assert.ok(img, 'app.js n-a instanțiat nicio Image() cu src conținând "water-bg"');
+      assert.equal(typeof img.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea water-bg');
+      img.onload();
+    },
+    // T-13: simulează evenimentul `onload` al imaginii de teren (tilemap din
+    // care se decupează peticul de iarbă).
+    triggerTerrainImageLoad() {
+      const img = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('terrain-tilemap'));
+      assert.ok(img, 'app.js n-a instanțiat nicio Image() cu src conținând "terrain-tilemap"');
+      assert.equal(typeof img.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea terrain-tilemap');
+      img.onload();
+    },
+    // T-14: analog cu triggerImageLoad/triggerRunImageLoad de mai sus, dar
+    // pentru imaginea de tufă (decorațiune animată).
+    triggerBushImageLoad() {
+      const img = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('bush'));
+      assert.ok(img, 'app.js n-a instanțiat nicio Image() cu src conținând "bush"');
+      assert.equal(typeof img.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea bush');
+      img.onload();
+    },
+    // T-14: cele DOUĂ variante de stâncă (rock1/rock2) — decorația statică
+    // alege între ele după `decoration.variant`, deci testele au nevoie de
+    // ambele "încărcate" ca să acopere oricare variantă a fost aleasă de hash.
+    triggerRockImagesLoad() {
+      const img1 = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('rock1'));
+      const img2 = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('rock2'));
+      assert.ok(img1, 'app.js n-a instanțiat nicio Image() cu src conținând "rock1"');
+      assert.ok(img2, 'app.js n-a instanțiat nicio Image() cu src conținând "rock2"');
+      assert.equal(typeof img1.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea rock1');
+      assert.equal(typeof img2.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea rock2');
+      img1.onload();
+      img2.onload();
+    },
+    // T-14: cele DOUĂ imagini de nor (cloud1/cloud2) — array-ul `clouds`
+    // folosește ambele variante.
+    triggerCloudImagesLoad() {
+      const img1 = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('cloud1'));
+      const img2 = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('cloud2'));
+      assert.ok(img1, 'app.js n-a instanțiat nicio Image() cu src conținând "cloud1"');
+      assert.ok(img2, 'app.js n-a instanțiat nicio Image() cu src conținând "cloud2"');
+      assert.equal(typeof img1.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea cloud1');
+      assert.equal(typeof img2.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea cloud2');
+      img1.onload();
+      img2.onload();
+    },
+    // T-13: expuse pentru verificarea decupării peticului de iarbă pe
+    // canvas-ul offscreen (vezi document.createElement mai sus).
+    offscreenCreateCalls,
+    offscreenDrawImageCalls,
+    // Apelează manual callback-ul buclei de animație a sprite-ului
+    // (setInterval-ul cu ms mic), simulând trecerea timpului.
+    advanceAnimationFrame() {
+      const animation = intervalCallbacks.find((c) => c.ms < 1000);
+      assert.ok(
+        animation,
+        'nu am găsit setInterval-ul de animație (ms < 1000) printre cele înregistrate de app.js'
+      );
+      animation.fn();
+    },
+    // T-11: avansează mișcarea reală cu exact un pas (MOVEMENT_TICK_MS =
+    // 50ms), apelând direct funcția de producție `updateAgentMovement()`
+    // (proprietate a sandbox-ului, fiindcă e declarată cu `function` la
+    // nivel de script — la fel ca `draw`/`tick`). Nu cheamă `draw()`: testele
+    // decid explicit când să redeseneze, ca să poată inspecta
+    // drawImageCalls/arcCalls între avansări succesive.
+    advanceMovementTick() {
+      sandbox.updateAgentMovement();
+    },
+    // T-11: simulează evenimentul `onload` al SPRITE-ULUI DE ALERGARE
+    // (pawn-run), a doua imagine instanțiată de app.js — analog cu
+    // triggerImageLoad() de mai sus, care acoperă doar prima imagine
+    // (pawn-idle).
+    triggerRunImageLoad() {
+      const img = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('pawn-run'));
+      assert.ok(img, 'app.js n-a instanțiat nicio Image() cu src conținând "pawn-run"');
+      assert.equal(typeof img.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea pawn-run');
+      img.onload();
+    },
+    // T-11: referință directă la instanțele Image() create de app.js. Utilă
+    // ca să verificăm prin IDENTITATE ce imagine a fost pasată la
+    // ctx.drawImage(...) (args[0]) — adică ce sprite a ales draw() pentru
+    // starea curentă a agentului.
+    imageInstances,
+    // Corecție planner (T-13): expuse după `.src`, nu index fix — T-13 a
+    // adăugat două `new Image()` noi (apă, teren) ÎNAINTEA lui `pawnImage`,
+    // deci `imageInstances[0]`/`[1]` nu mai sunt garantat idle/run.
+    get pawnIdleImage() {
+      return imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('pawn-idle'));
+    },
+    get pawnRunImage() {
+      return imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('pawn-run'));
+    },
+    // --- helpere T-07 (arhivare) ---
+    clickHide() {
+      assert.ok(hideBtnClickHandler, 'butonul Hide nu a fost randat/înregistrat (renderDetails trebuie apelat cu un agent selectat înainte)');
+      hideBtnClickHandler();
+    },
+    clickShowHidden() {
+      assert.ok(showHiddenBtnClickHandler, 'butonul "Arată ascunși" nu a fost înregistrat');
+      showHiddenBtnClickHandler();
+    },
+    clickHideHidden() {
+      assert.ok(hideHiddenBtnClickHandler, 'butonul "Ascunde lista" nu a fost înregistrat');
+      hideHiddenBtnClickHandler();
+    },
+    clickUnhide(sessionId) {
+      const handler = unhideClickHandlers.get(sessionId);
+      assert.ok(handler, `nu există buton Unhide înregistrat pentru ${sessionId} (ai apelat clickShowHidden() înainte?)`);
+      handler();
+    },
+    pendingTimerCount() {
+      return pendingTimers.size;
+    },
+    // Rulează TOATE timer-ele încă în așteptare (simulează trecerea celor
+    // 500ms de debounce) și așteaptă terminarea callback-urilor lor async.
+    async runDebounce() {
+      const entries = [...pendingTimers.entries()];
+      pendingTimers.clear();
+      await Promise.all(entries.map(([, t]) => t.fn()));
+    },
+    setPutStateImpl(fn) {
+      putStateImpl = fn;
+    },
+    getPutCalls() {
+      return putCalls;
+    },
+  };
+}
+
+// --- 1. Stabilitatea hash-ului -------------------------------------------
+
+test('hashToCellIndex e determinist și dă valoarea exactă așteptată', async () => {
+  const { sandbox } = await loadApp();
+
+  const cases = [
+    { id: 'session-a', expected: sumCharCodes('session-a') % 64 },
+    { id: 'agent-42', expected: sumCharCodes('agent-42') % 64 },
+    { id: 'x', expected: sumCharCodes('x') % 64 },
+  ];
+
+  for (const { id, expected } of cases) {
+    const first = sandbox.hashToCellIndex(id);
+    const second = sandbox.hashToCellIndex(id);
+    assert.equal(first, expected, `hash greșit pentru "${id}"`);
+    assert.equal(second, expected, `hash-ul pentru "${id}" nu e stabil la a doua chemare`);
+  }
+});
+
+function sumCharCodes(str) {
+  let sum = 0;
+  for (let i = 0; i < str.length; i++) sum += str.charCodeAt(i);
+  return sum;
+}
+
+// --- 2. Independența de ordine --------------------------------------------
+
+test('poziția unui agent pe grilă nu depinde de ordinea din array-ul de agenți', async () => {
+  const app = await loadApp();
+
+  const agentA = { sessionId: 'session-a', alive: true, status: 'busy', name: 'alice' };
+  const agentB = { sessionId: 'session-b', alive: true, status: 'busy', name: 'bob' };
+
+  await app.setAgents([agentA, agentB]);
+  // T-11: draw() desenează acum din agentMovement, populat/avansat doar de
+  // updateAgentMovement() — fără avansare, agenții sunt încă la SPAWN_POINT.
+  // Așteptăm sosirea (at-site) ca poziția desenată să reflecte de fapt
+  // celula calculată din hash, nu doar punctul comun de apariție.
+  settleMovement(app);
+  app.sandbox.draw();
+  const firstRunCalls = app.fillTextCalls.splice(0, app.fillTextCalls.length);
+  const posAliceFirst = firstRunCalls.find((c) => c.text === 'alice');
+  const posBobFirst = firstRunCalls.find((c) => c.text === 'bob');
+
+  await app.setAgents([agentB, agentA]); // ordine inversată
+  settleMovement(app);
+  app.sandbox.draw();
+  const secondRunCalls = app.fillTextCalls.splice(0, app.fillTextCalls.length);
+  const posAliceSecond = secondRunCalls.find((c) => c.text === 'alice');
+  const posBobSecond = secondRunCalls.find((c) => c.text === 'bob');
+
+  assert.ok(posAliceFirst && posAliceSecond, 'alice ar fi trebuit desenată în ambele randări');
+  assert.ok(posBobFirst && posBobSecond, 'bob ar fi trebuit desenat în ambele randări');
+
+  assert.deepEqual(
+    { x: posAliceFirst.x, y: posAliceFirst.y },
+    { x: posAliceSecond.x, y: posAliceSecond.y },
+    'poziția lui alice s-a schimbat doar pentru că ordinea din array s-a schimbat'
+  );
+  assert.deepEqual(
+    { x: posBobFirst.x, y: posBobFirst.y },
+    { x: posBobSecond.x, y: posBobSecond.y },
+    'poziția lui bob s-a schimbat doar pentru că ordinea din array s-a schimbat'
+  );
+});
+
+// --- 3. Mapare activity → culoare --------------------------------------------
+
+test('colorForActivity: "working" primește culoarea dedicată', async () => {
+  const { sandbox } = await loadApp();
+  assert.equal(sandbox.colorForActivity('working'), '#2A5FAE');
+});
+
+test('colorForActivity: "waiting" primește culoarea dedicată', async () => {
+  const { sandbox } = await loadApp();
+  assert.equal(sandbox.colorForActivity('waiting'), '#B4801E');
+});
+
+test('colorForActivity: "sleeping" primește gri', async () => {
+  const { sandbox } = await loadApp();
+  assert.equal(sandbox.colorForActivity('sleeping'), '#888');
+});
+
+test('colorForActivity: valori necunoscute primesc gri și nu aruncă', async () => {
+  const { sandbox } = await loadApp();
+  for (const activity of ['busy', 'idle', 'ceva-inventat', undefined, null, '']) {
+    assert.doesNotThrow(() => {
+      const color = sandbox.colorForActivity(activity);
+      assert.equal(color, '#888');
+    });
+  }
+});
+
+// --- 4. Detectare click -----------------------------------------------------
+
+test('click exact pe centrul unui cerc selectează agentul (apare în panoul de detalii)', async () => {
+  const app = await loadApp();
+  const agent = {
+    sessionId: 'session-a',
+    alive: true,
+    status: 'busy',
+    name: 'alice',
+    pid: 123,
+    cwd: '/tmp',
+    updatedAt: Date.now(),
+  };
+  await app.setAgents([agent]);
+  // T-11: click-ul selectează după poziția AFIȘATĂ curentă (agentMovement),
+  // nu direct după ținta calculată — așteptăm sosirea (at-site) ca cele
+  // două să coincidă exact.
+  settleMovement(app);
+
+  const pos = agentPixelPosition(app, agent);
+
+  app.click(pos.x, pos.y);
+
+  assert.ok(app.fakeDetails.innerHTML.includes('alice'), 'click pe centru ar fi trebuit să selecteze agentul');
+  assert.ok(!app.fakeDetails._classes.has('hidden'), 'panoul de detalii ar fi trebuit să devină vizibil');
+});
+
+test('click în afara razei cercului NU selectează agentul', async () => {
+  const app = await loadApp();
+  const agent = {
+    sessionId: 'session-a',
+    alive: true,
+    status: 'busy',
+    name: 'alice',
+    pid: 123,
+    cwd: '/tmp',
+    updatedAt: Date.now(),
+  };
+  await app.setAgents([agent]);
+  settleMovement(app); // T-11: poziția afișată trebuie să coincidă cu ținta
+
+  const pos = agentPixelPosition(app, agent);
+
+  // 100px depărtare e mult mai mult decât raza cercului (28px).
+  app.click(pos.x + 100, pos.y + 100);
+
+  assert.equal(app.fakeDetails.innerHTML, '', 'click departe de cerc n-ar fi trebuit să selecteze nimic');
+  assert.ok(app.fakeDetails._classes.has('hidden'), 'panoul de detalii ar fi trebuit să rămână ascuns');
+});
+
+// --- 5. Formatare timp -------------------------------------------------------
+
+test('renderDetails formatează updatedAt ca string nevid, fără să arunce', async () => {
+  const app = await loadApp();
+  const agent = {
+    sessionId: 'session-a',
+    alive: true,
+    status: 'busy',
+    name: 'alice',
+    pid: 123,
+    cwd: '/tmp',
+    updatedAt: Date.now(),
+  };
+  await app.setAgents([agent]);
+  settleMovement(app); // T-11: poziția afișată trebuie să coincidă cu ținta
+
+  const pos = agentPixelPosition(app, agent);
+
+  assert.doesNotThrow(() => app.click(pos.x, pos.y));
+
+  const match = app.fakeDetails.innerHTML.match(/<span class="label">updatedAt<\/span>([^<]*)</);
+  assert.ok(match, 'nu găsesc câmpul updatedAt în panoul de detalii');
+  assert.notEqual(match[1].trim(), '', 'updatedAt ar fi trebuit să fie un string nevid');
+});
+
+// --- 6. Sprite animat (T-04) -------------------------------------------------
+
+// Dimensiuni fixe ale sheet-ului/sprite-ului, documentate explicit în
+// docs/handoff/T-04-coder-raport.md (nu sunt "poziții ghicite" — sunt
+// constante ale formatului sprite-ului: 8 cadre de 192x192px pe sheet,
+// desenate la 56x56px pe canvas).
+const SPRITE_FRAME_SIZE = 192;
+const SPRITE_FRAME_COUNT = 8;
+const SPRITE_DEST_SIZE = 56;
+const SPRITE_HALF = SPRITE_DEST_SIZE / 2;
+const CIRCLE_RADIUS = 28; // hit-test-ul de click, documentat în public/app.js
+
+// T-11 — constante de mișcare, documentate în public/app.js (nu exportate,
+// la fel ca restul constantelor `const`/`let` de mai sus în acest fișier —
+// app.js nu are export-uri, deci le reproducem aici ca presupuneri explicite,
+// nu ghicite).
+const MOVEMENT_TICK_MS = 50;
+const MOVEMENT_DT = MOVEMENT_TICK_MS / 1000; // 0.05s
+const WALK_SPEED = 140; // px/s
+const ARRIVE_RADIUS = 6; // px
+const SPAWN_SCALE_RATE = 3; // scale/s
+const LEAVING_SHRINK_RATE = 2.2; // scale/s
+
+// T-12 — constante de cameră, documentate în public/app.js (camera 2D).
+const MIN_ZOOM = 0.3;
+const MAX_ZOOM = 3;
+// Dimensiune fixă a mock-ului de canvas (vezi fakeCanvas/fakeWindow din
+// loadApp()) — 720x720, ca să păstreze neschimbate testele T-04/T-07/T-10/T-11
+// deja scrise pe baza acestei valori (GRID_OFFSET, celule de zonă etc.).
+const CANVAS_W = 720;
+const CANVAS_H = 720;
+const CANVAS_CENTER_X = CANVAS_W / 2;
+const CANVAS_CENTER_Y = CANVAS_H / 2;
+
+// T-12 — SPAWN_POINT e acum originea LUMII ({x:0,y:0}, fix în app.js, nu mai
+// depinde de canvas.width/height). Poziția de ECRAN, la camera implicită
+// ({x:0,y:0,zoom:1}), e worldToScreen(0,0) = centrul canvas-ului — de-asta
+// testele care compară cu drawImage (coordonate de ecran) folosesc centrul,
+// nu colțul stânga-jos ca înainte de T-12.
+const TEST_SPAWN_POINT = { x: CANVAS_CENTER_X, y: CANVAS_CENTER_Y };
+
+function assertClose(actual, expected, msg, epsilon = 1e-6) {
+  assert.ok(
+    Math.abs(actual - expected) <= epsilon,
+    `${msg} (așteptat ~${expected}, primit ${actual})`
+  );
+}
+
+// T-12 — extrage zoom-ul curent al camerei FĂRĂ să atingă `camera` direct
+// (e `const` la nivel de script, nu devine proprietate globală în sandbox —
+// la fel ca `agents`/`state`). worldToScreen scalează orice deplasare de
+// lume cu `camera.zoom`; diferența dintre transformarea a două puncte aflate
+// la distanță de 1 unitate de lume pe axa x dă exact zoom-ul, indiferent de
+// translația curentă a camerei (translația se anulează la scădere).
+function getZoom(app) {
+  const a = app.sandbox.worldToScreen(0, 0);
+  const b = app.sandbox.worldToScreen(1, 0);
+  return b.x - a.x;
+}
+
+// T-11 — avansează mișcarea suficient cât orice agent aflat în tranziție
+// (spawn -> walking -> at-site, sau leaving -> dispariție) să-și termine
+// ciclul, indiferent de distanța până la țintă. 400 pași * 7px/pas
+// (WALK_SPEED*MOVEMENT_DT) = 2800px, mult peste diagonala canvas-ului de
+// test (720x720 =~ 1018px), plus cele ~7 tick-uri necesare pentru scale-ul
+// de apariție/plecare.
+function settleMovement(app, ticks = 400) {
+  for (let i = 0; i < ticks; i++) app.advanceMovementTick();
+}
+
+function makeAliveAgent(overrides = {}) {
+  return {
+    sessionId: 'session-a',
+    alive: true,
+    status: 'busy',
+    name: 'alice',
+    pid: 123,
+    cwd: '/tmp',
+    updatedAt: Date.now(),
+    ...overrides,
+  };
+}
+
+test('draw() NU cheamă drawImage cât timp imaginea sprite-ului nu s-a "încărcat"', async () => {
+  const app = await loadApp();
+  await app.setAgents([makeAliveAgent()]); // tick() -> draw(), imaginea nu s-a "încărcat" încă
+  app.advanceMovementTick(); // T-11: creează intrarea în agentMovement (scale>0)
+  app.sandbox.draw();
+
+  assert.equal(
+    app.drawImageCalls.length,
+    0,
+    'drawImage n-ar fi trebuit chemat înainte ca pawnImage.onload să fi fost declanșat'
+  );
+});
+
+test('după "încărcarea" imaginii, draw() cheamă drawImage cu cadrul 0 (sx=0, sy=0, sw=192, sh=192)', async () => {
+  const app = await loadApp();
+  await app.setAgents([makeAliveAgent()]);
+  app.advanceMovementTick(); // T-11: fără asta, agentMovement e gol -> 0 chemări
+
+  app.triggerImageLoad();
+  app.sandbox.draw();
+
+  assert.equal(app.drawImageCalls.length, 1, 'ar fi trebuit exact o chemare de drawImage pentru un agent viu');
+  const [, sx, sy, sw, sh] = app.drawImageCalls[0];
+  assert.equal(sx, 0, 'sx ar fi trebuit să corespundă cadrului 0');
+  assert.equal(sy, 0, 'sy ar fi trebuit să fie 0 (un singur rând de cadre)');
+  assert.equal(sw, SPRITE_FRAME_SIZE, 'sw ar fi trebuit să fie dimensiunea unui cadru');
+  assert.equal(sh, SPRITE_FRAME_SIZE, 'sh ar fi trebuit să fie dimensiunea unui cadru');
+});
+
+test('cadrele de animație avansează ciclic 0..7 și revin la 0 după cadrul 7', async () => {
+  const app = await loadApp();
+  await app.setAgents([makeAliveAgent()]);
+  app.advanceMovementTick(); // T-11: fără asta, agentMovement e gol -> 0 chemări
+  app.triggerImageLoad();
+
+  // 10 avansări peste un ciclu de 8 cadre -> trebuie să "dea roată" de două ori.
+  const expectedFrames = [1, 2, 3, 4, 5, 6, 7, 0, 1, 2];
+  const observedFrames = [];
+
+  for (let i = 0; i < expectedFrames.length; i++) {
+    app.advanceAnimationFrame(); // avansează currentFrame ȘI cheamă draw()
+    const lastCall = app.drawImageCalls[app.drawImageCalls.length - 1];
+    assert.ok(lastCall, `nicio chemare de drawImage după avansarea #${i + 1}`);
+    observedFrames.push(lastCall[1] / SPRITE_FRAME_SIZE);
+  }
+
+  assert.deepEqual(
+    observedFrames,
+    expectedFrames,
+    'secvența de cadre nu e ciclică 0..7 sau nu se resetează după cadrul 7'
+  );
+  assert.equal(SPRITE_FRAME_COUNT, 8, 'presupunere invalidată: sheet-ul nu mai are 8 cadre');
+});
+
+test('draw() desenează un indicator de status suplimentar (arc+fill) cu culoarea din colorForActivity', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ activity: 'working' });
+  await app.setAgents([agent]);
+  settleMovement(app); // T-11: poziția afișată trebuie să coincidă cu ținta
+  app.arcCalls.length = 0;
+  app.fillCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(app.arcCalls.length, 1, 'ar fi trebuit desenat exact un cerc (indicatorul de status) pentru un agent viu');
+  assert.equal(app.fillCalls.length, 1, 'ar fi trebuit exact o chemare fill() pentru indicatorul de status');
+  assert.equal(
+    app.fillCalls[0].fillStyle,
+    app.sandbox.colorForActivity('working'),
+    'culoarea indicatorului de status ar fi trebuit să vină din colorForActivity'
+  );
+
+  const pos = agentPixelPosition(app, agent);
+  const spriteX = pos.x - SPRITE_HALF;
+  const spriteY = pos.y - SPRITE_HALF;
+  const [cx, cy] = app.arcCalls[0];
+  assert.equal(cx, spriteX + SPRITE_DEST_SIZE, 'centrul indicatorului nu e în colțul dreapta-sus al sprite-ului');
+  assert.equal(cy, spriteY, 'centrul indicatorului nu e în colțul dreapta-sus al sprite-ului');
+});
+
+test('draw() NU desenează indicatorul de status pentru agenți morți (alive=false)', async () => {
+  const app = await loadApp();
+  await app.setAgents([makeAliveAgent({ alive: false })]);
+
+  assert.equal(app.arcCalls.length, 0, 'un agent mort n-ar fi trebuit desenat deloc');
+  assert.equal(app.drawImageCalls.length, 0, 'un agent mort n-ar fi trebuit desenat deloc');
+});
+
+test('la agent selectat, strokeRect e chemat cu zona sprite-ului (spriteX, spriteY, 56, 56)', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent();
+  await app.setAgents([agent]);
+  settleMovement(app); // T-11: poziția afișată trebuie să coincidă cu ținta
+
+  // T-10: drawZones() desenează și el strokeRect (conturul celulelor de
+  // zonă, dimensiune CELL_SIZE=80) la fiecare draw(), indiferent de
+  // selecție — deci "0 apeluri fără selecție" nu mai e adevărat. Distingem
+  // conturul de SELECȚIE de cele de ZONĂ după dimensiune (56 vs 80), nu
+  // după numărul total de apeluri.
+  const selectionStrokesBefore = app.strokeRectCalls.filter(([, , w]) => w === SPRITE_DEST_SIZE);
+  assert.equal(selectionStrokesBefore.length, 0, 'fără selecție, nu ar trebui desenat niciun contur de SELECȚIE (cele de zonă nu contează)');
+
+  const pos = agentPixelPosition(app, agent);
+  app.click(pos.x, pos.y); // selectează agentul (click în centrul zonei de hit-test) și redesenează
+
+  const selectionStrokesAfter = app.strokeRectCalls.filter(([, , w]) => w === SPRITE_DEST_SIZE);
+  assert.equal(selectionStrokesAfter.length, 1, 'ar fi trebuit exact un contur de selecție (dimensiune 56) după click');
+  const [sx, sy, w, h] = selectionStrokesAfter[0];
+  assert.equal(sx, pos.x - SPRITE_HALF, 'colțul stânga-sus (x) al conturului nu corespunde poziției agentului');
+  assert.equal(sy, pos.y - SPRITE_HALF, 'colțul stânga-sus (y) al conturului nu corespunde poziției agentului');
+  assert.equal(w, SPRITE_DEST_SIZE, 'lățimea conturului ar fi trebuit să fie dimensiunea sprite-ului (56)');
+  assert.equal(h, SPRITE_DEST_SIZE, 'înălțimea conturului ar fi trebuit să fie dimensiunea sprite-ului (56)');
+});
+
+// --- 7. Arhivare (T-07) ------------------------------------------------------
+
+// T-11: înainte de mișcarea reală, un agent arhivat dispărea INSTANT din
+// desen (hideAgent() îl scotea imediat din `agents`/`agentPositions`). Acum
+// draw() iterează `agentMovement`, iar un agent arhivat trece în starea
+// 'leaving' și continuă să fie desenat cât "pleacă" spre SPAWN_POINT —
+// exact comportamentul cerut de T-11 (vezi și secțiunea 9 de mai jos). Acest
+// test verifică varianta corectă: dispariția e eventuală, nu instantanee.
+test('un agent arhivat NU mai e desenat abia după ce animația de plecare (leaving) s-a terminat complet', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent();
+  await app.setAgents([agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+  settleMovement(app); // agentul ajunge at-site
+
+  // Îl arhivăm prin calea reală (hideAgent), singura care populează
+  // `state.archived` — `state` e `let` la nivel de script, nu există altă
+  // cale de a-l seta din exterior după ce initState() a rulat deja.
+  app.sandbox.hideAgent(agent.sessionId);
+  settleMovement(app); // suficient pentru ca leaving-ul să se termine complet
+
+  app.arcCalls.length = 0;
+  app.drawImageCalls.length = 0;
+  app.fillTextCalls.length = 0;
+
+  app.sandbox.draw();
+
+  assert.equal(app.arcCalls.length, 0, 'după plecarea completă, agentul arhivat n-ar mai trebui desenat (arc)');
+  assert.equal(app.drawImageCalls.length, 0, 'după plecarea completă, agentul arhivat n-ar mai trebui desenat (drawImage)');
+  assert.ok(
+    !app.fillTextCalls.some((c) => c.text === agent.name),
+    'după plecarea completă, numele agentului arhivat n-ar mai trebui desenat pe hartă'
+  );
+});
+
+test('un agent arhivat e TOT desenat imediat după Hide, cât timp e în leaving (nu dispare brusc)', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent();
+  await app.setAgents([agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+  settleMovement(app); // agentul ajunge at-site
+
+  app.sandbox.hideAgent(agent.sessionId); // arhivare + draw() intern (încă în starea de dinainte)
+  app.advanceMovementTick(); // un pas: tranziția explicită spre 'leaving'
+
+  app.drawImageCalls.length = 0;
+  app.arcCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(
+    app.drawImageCalls.length,
+    1,
+    'un agent arhivat, cât timp e în leaving, ar fi trebuit tot desenat (nu dispărut brusc)'
+  );
+  assert.equal(app.arcCalls.length, 1, 'un agent arhivat, cât timp e în leaving, ar fi trebuit tot desenat (arc)');
+  assert.equal(
+    app.drawImageCalls[0][0],
+    app.pawnRunImage,
+    'în leaving, sprite-ul ar fi trebuit să fie cel de alergare (pawn-run), nu idle'
+  );
+});
+
+test('click pe poziția unui agent arhivat NU îl selectează (filtrare la hit-test)', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent();
+  await app.setAgents([agent]);
+  settleMovement(app); // T-11: poziția afișată trebuie să coincidă cu ținta
+
+  const pos = agentPixelPosition(app, agent);
+
+  // selectăm normal (confirmă că poziția de click e corectă), apoi îl
+  // ascundem prin fluxul real (buton Hide).
+  app.click(pos.x, pos.y);
+  assert.ok(app.fakeDetails.innerHTML.includes(agent.name), 'presetup: click-ul ar fi trebuit să selecteze agentul înainte de Hide');
+  app.clickHide();
+
+  app.click(pos.x, pos.y);
+
+  assert.equal(
+    app.fakeDetails.innerHTML.includes(agent.name),
+    false,
+    'click pe poziția unui agent ascuns nu ar fi trebuit să-l selecteze din nou'
+  );
+});
+
+test('initState() la pornire încarcă archived existent din /api/state — agentul e filtrat din primul draw()', async () => {
+  const agent = makeAliveAgent();
+  const app = await loadApp({
+    initialState: {
+      version: 1,
+      archived: [agent.sessionId],
+      archivedAt: { [agent.sessionId]: 12345 },
+      updatedAt: 42,
+    },
+  });
+
+  await app.setAgents([agent]);
+  // T-11: verificăm și că updateAgentMovement() nu-l adaugă retroactiv în
+  // agentMovement — un agent deja arhivat la încărcare nu ar trebui să
+  // "apară" nici măcar temporar.
+  app.advanceMovementTick();
+  app.arcCalls.length = 0;
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(app.arcCalls.length, 0, 'un agent deja arhivat pe disc n-ar fi trebuit desenat de la primul tick()');
+  assert.ok(
+    app.fakeHiddenPanel.innerHTML.includes('(1)'),
+    `initState() ar fi trebuit să populeze renderHiddenList() cu agentul persistat, are: ${app.fakeHiddenPanel.innerHTML}`
+  );
+});
+
+test('hideAgent (prin butonul Hide) arhivează agentul, resetează selecția și programează salvarea', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent();
+  await app.setAgents([agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+  settleMovement(app); // T-11: poziția afișată trebuie să coincidă cu ținta
+
+  const pos = agentPixelPosition(app, agent);
+  app.click(pos.x, pos.y);
+  assert.ok(app.fakeDetails.innerHTML.includes('Hide'), 'panoul de detalii ar fi trebuit să conțină butonul Hide');
+
+  app.arcCalls.length = 0;
+  app.drawImageCalls.length = 0;
+
+  app.clickHide();
+
+  // 1. selecția s-a resetat -> renderDetails arată panoul ascuns
+  assert.ok(app.fakeDetails._classes.has('hidden'), 'panoul de detalii ar fi trebuit să redevină ascuns după Hide');
+  assert.equal(app.fakeDetails.textContent, '', 'panoul de detalii ar fi trebuit golit după Hide');
+
+  // 2. T-11: agentul TOT e desenat imediat după Hide — nu mai dispare
+  // instant, ci pleacă spre SPAWN_POINT (stare 'leaving'), vizibil cât timp
+  // se retrage. Dispariția completă e testată separat, mai jos (secțiunea
+  // Arhivare) și explicit în secțiunea 9 (T-11).
+  assert.equal(app.arcCalls.length, 1, 'agentul ascuns ar fi trebuit tot desenat imediat după Hide (pleacă, nu dispare instant)');
+  assert.equal(app.drawImageCalls.length, 1, 'agentul ascuns ar fi trebuit tot desenat imediat după Hide (pleacă, nu dispare instant)');
+
+  // 3. lista de ascunși reflectă noul count
+  assert.ok(
+    app.fakeHiddenPanel.innerHTML.includes('(1)'),
+    `lista de ascunși ar fi trebuit să arate 1 element, are: ${app.fakeHiddenPanel.innerHTML}`
+  );
+
+  // 4. s-a programat o salvare (debounce), dar nu s-a trimis încă
+  assert.equal(app.getPutCalls().length, 0, 'PUT-ul nu ar fi trebuit trimis înainte de debounce');
+  assert.equal(app.pendingTimerCount(), 1, 'ar fi trebuit programat exact un timer de debounce');
+
+  await app.runDebounce();
+
+  const puts = app.getPutCalls();
+  assert.equal(puts.length, 1, 'debounce-ul ar fi trebuit să trimită exact un PUT /api/state');
+  assert.ok(puts[0].archived.includes(agent.sessionId), 'PUT-ul ar fi trebuit să conțină sessionId-ul ascuns');
+  assert.ok(
+    Object.prototype.hasOwnProperty.call(puts[0].archivedAt, agent.sessionId),
+    'PUT-ul ar fi trebuit să conțină un timestamp pentru sessionId-ul ascuns'
+  );
+});
+
+test('unhideAgent (prin butonul Unhide din lista de ascunși) scoate agentul din archived și reapare pe hartă', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent();
+  await app.setAgents([agent]);
+  app.triggerImageLoad();
+  settleMovement(app); // T-11: poziția afișată trebuie să coincidă cu ținta
+
+  const pos = agentPixelPosition(app, agent);
+  app.click(pos.x, pos.y);
+  app.clickHide();
+
+  app.clickShowHidden();
+  assert.ok(
+    app.fakeHiddenPanel.innerHTML.includes(agent.sessionId) || app.fakeHiddenPanel.innerHTML.includes(agent.name),
+    'lista extinsă ar fi trebuit să arate agentul ascuns'
+  );
+
+  app.clickUnhide(agent.sessionId);
+
+  assert.ok(
+    app.fakeHiddenPanel.innerHTML.includes('(0)'),
+    `lista de ascunși ar fi trebuit să arate 0 elemente după Unhide, are: ${app.fakeHiddenPanel.innerHTML}`
+  );
+
+  // agentul e din nou "vizibil" pentru randare (tick încă îl are în `agents`,
+  // pentru că mock-ul de /api/agents nu s-a schimbat).
+  app.arcCalls.length = 0;
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  assert.equal(app.arcCalls.length, 1, 'agentul ar fi trebuit să redevină vizibil (arc) după Unhide');
+});
+
+test('saveState — succes: PUT conține archived/archivedAt curente și baseUpdatedAt se actualizează (verificat indirect prin al doilea PUT)', async () => {
+  const app = await loadApp();
+  const agentA = makeAliveAgent({ sessionId: 'session-a', name: 'alice' });
+  const agentB = makeAliveAgent({ sessionId: 'session-b', name: 'bob' });
+  await app.setAgents([agentA, agentB]);
+
+  app.sandbox.hideAgent('session-a');
+  await app.runDebounce();
+
+  const firstPut = app.getPutCalls()[0];
+  assert.deepEqual(firstPut.archived, ['session-a']);
+
+  // al doilea Hide: dacă baseUpdatedAt nu s-ar fi actualizat din răspunsul
+  // serverului la primul PUT, acest al doilea PUT ar trimite tot
+  // baseUpdatedAt-ul vechi (0) — verificăm indirect că s-a schimbat.
+  app.sandbox.hideAgent('session-b');
+  await app.runDebounce();
+
+  const secondPut = app.getPutCalls()[1];
+  assert.ok(secondPut.baseUpdatedAt > 0, 'baseUpdatedAt ar fi trebuit actualizat din răspunsul primului PUT (nu a rămas 0)');
+  assert.deepEqual(
+    new Set(secondPut.archived),
+    new Set(['session-a', 'session-b']),
+    'al doilea PUT ar fi trebuit să conțină ambii agenți ascunși'
+  );
+});
+
+test('saveState — conflict 409: face merge cu starea remote și reîncearcă (nu se oprește la prima eroare)', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent();
+  await app.setAgents([agent]);
+
+  let calls = 0;
+  app.setPutStateImpl((body) => {
+    calls++;
+    if (calls === 1) {
+      const remote = {
+        version: 1,
+        archived: ['remote-agent'],
+        archivedAt: { 'remote-agent': 111 },
+        updatedAt: 999,
+      };
+      return { ok: false, status: 409, json: async () => remote };
+    }
+    const saved = { version: 1, archived: body.archived, archivedAt: body.archivedAt, updatedAt: 2000 };
+    return { ok: true, status: 200, json: async () => saved };
+  });
+
+  app.sandbox.hideAgent(agent.sessionId);
+  await app.runDebounce();
+
+  const puts = app.getPutCalls();
+  assert.equal(puts.length, 2, 'ar fi trebuit exact 2 încercări de PUT: prima respinsă cu 409, a doua reușită');
+
+  const retryBody = puts[1];
+  assert.ok(
+    retryBody.archived.includes(agent.sessionId),
+    'reîncercarea ar fi trebuit să păstreze elementul ascuns local'
+  );
+  assert.ok(
+    retryBody.archived.includes('remote-agent'),
+    'reîncercarea ar fi trebuit să includă și elementul din starea remote (mergeState nu a fost apelat sau a fost apelat greșit)'
+  );
+});
+
+test('debounce: două hideAgent() rapide trimit un singur PUT /api/state, nu două', async () => {
+  const app = await loadApp();
+  const agentA = makeAliveAgent({ sessionId: 'session-a' });
+  const agentB = makeAliveAgent({ sessionId: 'session-b' });
+  await app.setAgents([agentA, agentB]);
+
+  app.sandbox.hideAgent('session-a');
+  app.sandbox.hideAgent('session-b'); // înainte ca debounce-ul primului să ruleze
+
+  assert.equal(
+    app.pendingTimerCount(),
+    1,
+    'al doilea hideAgent() ar fi trebuit să anuleze timer-ul primului (clearTimeout), nu să programeze unul suplimentar'
+  );
+
+  await app.runDebounce();
+
+  const puts = app.getPutCalls();
+  assert.equal(puts.length, 1, 'ar fi trebuit trimis un singur PUT după debounce, nu unul per hideAgent()');
+  assert.deepEqual(
+    new Set(puts[0].archived),
+    new Set(['session-a', 'session-b']),
+    'singurul PUT trimis ar fi trebuit să conțină ambii agenți ascunși în acel interval'
+  );
+});
+
+// --- 8. Zone per proiect (T-10) ----------------------------------------------
+//
+// CELL_SIZE=80 (public/app.js) — folosit direct mai jos (nu importat, pentru
+// că app.js nu exportă nimic; e documentat aici ca presupunere explicită,
+// nu "ghicit").
+const ZONE_CELL_SIZE = 80;
+
+test('un singur proiect, un singur agent: poziția vine din prima celulă a zonei, fără jitter', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/alpha' });
+  await app.setAgents([agent]);
+
+  // Oracol independent: aceeași alocare pe care ar fi făcut-o updateZones()
+  // la primul tick (state.plots pornește gol -> previousMap gol).
+  const plotsMap = app.sandbox.allocateCells([{ id: agent.cwd, size: 1 }], new Map());
+  const cells = plotsMap.get(agent.cwd);
+  assert.ok(cells && cells.length >= 1, 'presetup: proiectul ar fi trebuit să primească cel puțin o celulă');
+  const expectedPos = app.sandbox.zoneCellToPixels(cells[0]);
+
+  const actualPos = app.sandbox.computeAgentPositions([agent]).get(agent.sessionId);
+  assert.deepEqual(
+    actualPos,
+    expectedPos,
+    'poziția agentului unic dintr-un proiect ar fi trebuit să fie exact centrul primei celule a zonei, fără jitter'
+  );
+});
+
+test('un singur proiect, mai mulți agenți: sunt distribuiți pe celule diferite ale zonei', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/many';
+  // 8 agenți > SLOTS_PER_CELL (7 din zones.js) -> proiectul primește cel
+  // puțin 2 celule; id-uri alese ca hash-ul (sumă de coduri ASCII) să aibă
+  // parități alternante, garantând că nu toți cad pe aceeași celulă.
+  const agentList = [];
+  for (let i = 0; i < 8; i++) {
+    agentList.push(makeAliveAgent({ sessionId: `agent-${i}`, name: `a${i}`, cwd }));
+  }
+  await app.setAgents(agentList);
+
+  const plotsMap = app.sandbox.allocateCells([{ id: cwd, size: 8 }], new Map());
+  const cells = plotsMap.get(cwd);
+  assert.ok(cells.length >= 2, 'presetup: 8 agenți ar fi trebuit să primească cel puțin 2 celule');
+
+  const usedCellKeys = new Set();
+  for (const agent of agentList) {
+    const cell = app.sandbox.cellForAgent(agent, cells);
+    usedCellKeys.add(`${cell.x},${cell.y}`);
+  }
+  assert.ok(
+    usedCellKeys.size >= 2,
+    `cei 8 agenți ar fi trebuit distribuiți pe cel puțin 2 celule diferite, au folosit doar: ${[...usedCellKeys]}`
+  );
+});
+
+test('coliziune pe aceeași celulă: doi agenți din același proiect primesc poziții apropiate, dar diferite (jitter)', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/collide';
+  // proiect cu doar 2 agenți (sub SLOTS_PER_CELL=7) -> exact o celulă ->
+  // ambii cad garantat pe aceeași celulă, indiferent de sessionId.
+  const agentA = makeAliveAgent({ sessionId: 'agent-x', name: 'ax', cwd });
+  const agentB = makeAliveAgent({ sessionId: 'agent-y', name: 'ay', cwd });
+  await app.setAgents([agentA, agentB]);
+
+  const positions = app.sandbox.computeAgentPositions([agentA, agentB]);
+  const posA = positions.get(agentA.sessionId);
+  const posB = positions.get(agentB.sessionId);
+  assert.notDeepEqual(posA, posB, 'cei doi agenți de pe aceeași celulă ar fi trebuit despărțiți prin jitter');
+
+  const plotsMap = app.sandbox.allocateCells([{ id: cwd, size: 2 }], new Map());
+  const cellCenter = app.sandbox.zoneCellToPixels(plotsMap.get(cwd)[0]);
+  const distA = Math.hypot(posA.x - cellCenter.x, posA.y - cellCenter.y);
+  const distB = Math.hypot(posB.x - cellCenter.x, posB.y - cellCenter.y);
+  // ZONE_JITTER_RADIUS = 12px în app.js; 20px e o margine generoasă, nu o
+  // valoare exactă ghicită.
+  assert.ok(
+    distA <= 20 && distB <= 20,
+    `jitter-ul ar fi trebuit să păstreze agenții aproape de centrul celulei, distanțe: ${distA}, ${distB}`
+  );
+});
+
+test('doi agenți din cwd-uri diferite ajung în zone diferite, nesuprapuse', async () => {
+  const app = await loadApp();
+  const agentA = makeAliveAgent({ sessionId: 'session-a', name: 'alice', cwd: '/proj/one' });
+  const agentB = makeAliveAgent({ sessionId: 'session-b', name: 'bob', cwd: '/proj/two' });
+  await app.setAgents([agentA, agentB]);
+
+  const positions = app.sandbox.computeAgentPositions([agentA, agentB]);
+  const posA = positions.get(agentA.sessionId);
+  const posB = positions.get(agentB.sessionId);
+  assert.notDeepEqual(posA, posB, 'agenți din proiecte diferite n-ar fi trebuit să cadă pe aceeași poziție');
+});
+
+test('updateZones(): două tick-uri cu ACELAȘI set de agenți -> un singur PUT /api/state, nu unul per tick', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/stable' });
+
+  await app.setAgents([agent]); // primul tick: plots gol -> plots populat => schimbare => queueSave()
+  assert.equal(app.pendingTimerCount(), 1, 'primul tick cu un proiect nou ar fi trebuit să programeze o salvare');
+  await app.runDebounce();
+  const putsAfterFirst = app.getPutCalls().length;
+  assert.equal(putsAfterFirst, 1, 'primul layout de zone ar fi trebuit salvat o singură dată');
+
+  await app.setAgents([agent]); // al doilea tick, exact același agent -> același layout
+  assert.equal(
+    app.pendingTimerCount(),
+    0,
+    'un tick cu exact același layout de zone n-ar fi trebuit să programeze o nouă salvare'
+  );
+  await app.runDebounce();
+  assert.equal(
+    app.getPutCalls().length,
+    putsAfterFirst,
+    'al doilea tick cu același layout n-ar fi trebuit să trimită un PUT suplimentar'
+  );
+});
+
+test('updateZones(): un agent nou dintr-un proiect nou schimbă layout-ul -> se declanșează un nou PUT', async () => {
+  const app = await loadApp();
+  const agentA = makeAliveAgent({ sessionId: 'session-a', cwd: '/proj/first' });
+  const agentC = makeAliveAgent({ sessionId: 'session-c', cwd: '/proj/second' });
+
+  await app.setAgents([agentA]);
+  await app.runDebounce();
+  const putsBefore = app.getPutCalls().length;
+
+  await app.setAgents([agentA, agentC]); // proiect nou apărut -> layout diferit
+  assert.equal(
+    app.pendingTimerCount(),
+    1,
+    'apariția unui proiect nou ar fi trebuit să schimbe layout-ul și să programeze o salvare'
+  );
+  await app.runDebounce();
+  assert.equal(
+    app.getPutCalls().length,
+    putsBefore + 1,
+    'schimbarea reală de layout ar fi trebuit să trimită exact un PUT suplimentar'
+  );
+});
+
+test('drawZones(): un dreptunghi per celulă a proiectului, iar eticheta e doar ultimul segment al căii', async () => {
+  const app = await loadApp();
+  const cwd = 'C:\\Users\\lucian\\proiecte\\rpgfactory';
+  const agentList = [];
+  for (let i = 0; i < 8; i++) {
+    agentList.push(makeAliveAgent({ sessionId: `agent-${i}`, name: `a${i}`, cwd }));
+  }
+  await app.setAgents(agentList); // populează state.plots[cwd] cu >= 2 celule
+
+  const plotsMap = app.sandbox.allocateCells([{ id: cwd, size: 8 }], new Map());
+  const cells = plotsMap.get(cwd);
+
+  app.fillRectCalls.length = 0;
+  app.strokeRectCalls.length = 0;
+  app.fillTextCalls.length = 0;
+
+  app.sandbox.drawZones();
+
+  assert.equal(app.fillRectCalls.length, cells.length, 'ar fi trebuit exact un fillRect (fundal) per celulă a proiectului');
+  const zoneStrokes = app.strokeRectCalls.filter((args) => args[2] === ZONE_CELL_SIZE && args[3] === ZONE_CELL_SIZE);
+  assert.equal(
+    zoneStrokes.length,
+    cells.length,
+    `ar fi trebuit exact un strokeRect de ${ZONE_CELL_SIZE}x${ZONE_CELL_SIZE} per celulă a proiectului`
+  );
+
+  const label = app.fillTextCalls.find((c) => c.text === 'rpgfactory');
+  assert.ok(
+    label,
+    `eticheta desenată ar fi trebuit să fie ultimul segment al căii ("rpgfactory"), nu calea completă; fillText-uri: ${JSON.stringify(app.fillTextCalls)}`
+  );
+  assert.ok(
+    !app.fillTextCalls.some((c) => c.text === cwd),
+    'eticheta n-ar fi trebuit să conțină niciodată calea completă'
+  );
+});
+
+test('proiect fără nicio celulă alocată: cellForAgent întoarce fallback {x:0,y:0}, fără să arunce', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/empty' });
+  await app.setAgents([agent]);
+
+  // Obiectul întors de cellForAgent aparține realm-ului vm (Object.prototype
+  // diferit de cel din acest fișier) — assert.deepEqual îl respinge ca
+  // "same structure but not reference-equal" deși conținutul e identic.
+  // Comparăm proprietățile direct, nu obiectul întreg (același tipar de
+  // reparație folosit deja la merge-state.test.mjs, T-06).
+  assert.doesNotThrow(() => {
+    const cell = app.sandbox.cellForAgent(agent, []);
+    assert.equal(cell.x, 0);
+    assert.equal(cell.y, 0);
+  });
+  assert.doesNotThrow(() => {
+    const cell = app.sandbox.cellForAgent(agent, undefined);
+    assert.equal(cell.x, 0);
+    assert.equal(cell.y, 0);
+  });
+});
+
+test('colorForProject e determinist: același cwd primește aceeași culoare la apeluri repetate (nu se testează hex-ul exact)', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/color-determinism';
+
+  const first = app.sandbox.colorForProject(cwd);
+  const second = app.sandbox.colorForProject(cwd);
+
+  assert.deepEqual(first, second, 'colorForProject ar fi trebuit să întoarcă aceeași culoare pentru același cwd');
+});
+
+// --- 8b. Teren real: apă + iarbă (T-13) --------------------------------------
+
+// Helper: creează un proiect cu >=1 celulă alocată în state.plots, ca
+// drawZones() să aibă ce desena (identic cu tiparul folosit deja la testul
+// "drawZones(): un dreptunghi per celulă...").
+async function setupZoneApp(app, cwd, agentCount = 4) {
+  const agentList = [];
+  for (let i = 0; i < agentCount; i++) {
+    agentList.push(makeAliveAgent({ sessionId: `agent-${i}`, name: `a${i}`, cwd }));
+  }
+  await app.setAgents(agentList);
+}
+
+test('draw() NU umple tot canvas-ul cu apă înainte ca imaginea de apă să se "încarce"', async () => {
+  const app = await loadApp();
+  await setupZoneApp(app, '/proj/water-before-load');
+
+  app.fillRectCalls.length = 0;
+  app.fillRectStyles.length = 0;
+  app.sandbox.draw();
+
+  const fullCanvasFill = app.fillRectCalls.some(
+    ([x, y, w, h]) => x === 0 && y === 0 && w === CANVAS_W && h === CANVAS_H
+  );
+  assert.equal(
+    fullCanvasFill,
+    false,
+    'draw() n-ar fi trebuit să umple tot canvas-ul (fundal de apă) înainte de onload-ul imaginii de apă'
+  );
+});
+
+test('după onload pe imaginea de apă, draw() umple tot canvas-ul cu pattern-ul de apă', async () => {
+  const app = await loadApp();
+  await setupZoneApp(app, '/proj/water-after-load');
+
+  app.triggerWaterImageLoad();
+  app.fillRectCalls.length = 0;
+  app.fillRectStyles.length = 0;
+  app.sandbox.draw();
+
+  const fullCanvasFillIndex = app.fillRectCalls.findIndex(
+    ([x, y, w, h]) => x === 0 && y === 0 && w === 720 && h === 720
+  );
+  assert.notEqual(
+    fullCanvasFillIndex,
+    -1,
+    'draw() ar fi trebuit să cheme fillRect(0,0,canvas.width,canvas.height) după onload-ul imaginii de apă'
+  );
+  assert.deepEqual(
+    app.fillRectStyles[fullCanvasFillIndex],
+    { __fakePattern: true },
+    'fillRect-ul de fundal ar fi trebuit să folosească pattern-ul întors de ctx.createPattern(), nu o culoare plată'
+  );
+});
+
+test('drawZones(): după onload pe imaginea de teren, fiecare celulă foloseşte pattern-ul de iarbă, nu palette.fill', async () => {
+  const app = await loadApp();
+  await setupZoneApp(app, '/proj/grass-after-load');
+
+  app.triggerTerrainImageLoad();
+  app.fillRectCalls.length = 0;
+  app.fillRectStyles.length = 0;
+  app.sandbox.drawZones();
+
+  assert.ok(app.fillRectCalls.length > 0, 'drawZones() ar fi trebuit să deseneze cel puțin o celulă');
+  for (const style of app.fillRectStyles) {
+    assert.deepEqual(
+      style,
+      { __fakePattern: true },
+      'după încărcarea terenului, fiecare celulă ar fi trebuit umplută cu pattern-ul de iarbă, nu cu palette.fill'
+    );
+  }
+});
+
+test('drawZones(): fără onload pe imaginea de teren, celulele folosesc în continuare palette.fill (fallback T-10)', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/grass-fallback';
+  await setupZoneApp(app, cwd);
+
+  const palette = app.sandbox.colorForProject(cwd);
+
+  app.fillRectCalls.length = 0;
+  app.fillRectStyles.length = 0;
+  assert.doesNotThrow(() => app.sandbox.drawZones());
+
+  assert.ok(app.fillRectCalls.length > 0, 'drawZones() ar fi trebuit să deseneze cel puțin o celulă chiar fără pattern');
+  for (const style of app.fillRectStyles) {
+    assert.equal(
+      style,
+      palette.fill,
+      'fără onload pe imaginea de teren, fillStyle ar fi trebuit să rămână culoarea plată din colorForProject (fallback T-10)'
+    );
+  }
+});
+
+test('drawZones(): conturul (strokeStyle) zonei rămâne culoarea de proiect indiferent dacă terenul s-a încărcat sau nu', async () => {
+  const cwdA = '/proj/contour-no-load';
+  const cwdB = '/proj/contour-with-load';
+
+  const appNoLoad = await loadApp();
+  await setupZoneApp(appNoLoad, cwdA);
+  const paletteA = appNoLoad.sandbox.colorForProject(cwdA);
+  appNoLoad.strokeRectCalls.length = 0;
+  appNoLoad.strokeRectStyles.length = 0;
+  appNoLoad.sandbox.drawZones();
+  assert.ok(appNoLoad.strokeRectStyles.length > 0, 'ar fi trebuit cel puțin un strokeRect');
+  for (const style of appNoLoad.strokeRectStyles) {
+    assert.equal(style, paletteA.stroke, 'strokeStyle ar fi trebuit să rămână culoarea de proiect (fără teren încărcat)');
+  }
+
+  const appWithLoad = await loadApp();
+  await setupZoneApp(appWithLoad, cwdB);
+  appWithLoad.triggerTerrainImageLoad();
+  const paletteB = appWithLoad.sandbox.colorForProject(cwdB);
+  appWithLoad.strokeRectCalls.length = 0;
+  appWithLoad.strokeRectStyles.length = 0;
+  appWithLoad.sandbox.drawZones();
+  assert.ok(appWithLoad.strokeRectStyles.length > 0, 'ar fi trebuit cel puțin un strokeRect');
+  for (const style of appWithLoad.strokeRectStyles) {
+    assert.equal(style, paletteB.stroke, 'strokeStyle ar fi trebuit să rămână culoarea de proiect (cu teren încărcat, pattern doar pe fillStyle)');
+  }
+});
+
+test('decuparea peticului de iarbă: canvas-ul offscreen se creează o singură dată, nu la fiecare draw()', async () => {
+  const app = await loadApp();
+  await setupZoneApp(app, '/proj/grass-clip-once');
+
+  app.triggerTerrainImageLoad();
+  assert.equal(
+    app.offscreenCreateCalls.length,
+    1,
+    'document.createElement("canvas") ar fi trebuit apelat o singură dată, la onload-ul terenului'
+  );
+
+  // Mai multe draw()-uri ulterioare NU ar trebui să mai creeze alt canvas
+  // offscreen (pattern-ul, odată creat, rămâne fix — vezi raportul coder-ului).
+  app.sandbox.draw();
+  app.sandbox.draw();
+  assert.equal(
+    app.offscreenCreateCalls.length,
+    1,
+    'draw()-uri repetate n-ar fi trebuit să recreeze canvas-ul offscreen de decupare'
+  );
+});
+
+test('decuparea peticului de iarbă: drawImage pe canvas-ul offscreen folosește exact sx=40, sy=60, sw=64, sh=64', async () => {
+  const app = await loadApp();
+  await setupZoneApp(app, '/proj/grass-clip-coords');
+
+  app.triggerTerrainImageLoad();
+
+  assert.equal(
+    app.offscreenDrawImageCalls.length,
+    1,
+    'ar fi trebuit exact o chemare drawImage pe contextul canvas-ului offscreen, la onload-ul terenului'
+  );
+  const [, sx, sy, sw, sh] = app.offscreenDrawImageCalls[0];
+  assert.equal(sx, 40, 'sx ar fi trebuit să fie 40, conform raportului coder-ului');
+  assert.equal(sy, 60, 'sy ar fi trebuit să fie 60, conform raportului coder-ului');
+  assert.equal(sw, 64, 'sw ar fi trebuit să fie 64, conform raportului coder-ului');
+  assert.equal(sh, 64, 'sh ar fi trebuit să fie 64, conform raportului coder-ului');
+});
+
+// --- 9. Mișcare reală (T-11) --------------------------------------------------
+//
+// draw()/click-ul citesc acum din `agentMovement` (Map sessionId -> {state,
+// x, y, scale, stateAge, ...}), populat și avansat DOAR de
+// `updateAgentMovement()`, la nivel de MOVEMENT_TICK_MS=50ms. `setAgents()`
+// (folosit peste tot mai sus) NU avansează mișcarea — trebuie apelat explicit
+// `app.advanceMovementTick()` (un singur pas) sau `settleMovement(app)`
+// (avansează suficient cât orice tranziție să se termine).
+
+test('T-11 apariție: agent nou primește o intrare la SPAWN_POINT, stare spawning, scale pornind de la 0', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t11-spawn' });
+  await app.setAgents([agent]); // agentMovement încă gol
+
+  app.advanceMovementTick(); // primul pas: creează intrarea + un increment de scale
+  app.sandbox.draw();
+  assert.equal(app.arcCalls.length, 1, 'ar fi trebuit exact o intrare nouă în agentMovement (arc desenat necondiționat)');
+
+  app.triggerImageLoad();
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(app.drawImageCalls.length, 1, 'agentul nou ar fi trebuit desenat (idle) după încărcarea imaginii');
+  const [image, , , , , dx, dy, dw, dh] = app.drawImageCalls[0];
+  const expectedScale = MOVEMENT_DT * SPAWN_SCALE_RATE; // 0.15, sub pragul de 1
+  const expectedSize = SPRITE_DEST_SIZE * expectedScale;
+  assert.equal(image, app.pawnIdleImage, 'la apariție (spawning), sprite-ul ar fi trebuit să fie idle, nu de alergare');
+  assertClose(dw, expectedSize, 'lățimea sprite-ului nu reflectă scale-ul de apariție așteptat după un singur tick');
+  assertClose(dh, expectedSize, 'înălțimea sprite-ului nu reflectă scale-ul de apariție așteptat după un singur tick');
+  assertClose(dx, TEST_SPAWN_POINT.x - expectedSize / 2, 'poziția x a agentului nou nu e la SPAWN_POINT');
+  assertClose(dy, TEST_SPAWN_POINT.y - expectedSize / 2, 'poziția y a agentului nou nu e la SPAWN_POINT');
+});
+
+test('T-11 tranziția spawning -> walking se declanșează exact la scale >= 1 (nu mai devreme)', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t11-transition' });
+  await app.setAgents([agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+
+  const ticksToScaleOne = Math.ceil(1 / (MOVEMENT_DT * SPAWN_SCALE_RATE)); // 7
+
+  for (let i = 0; i < ticksToScaleOne - 1; i++) app.advanceMovementTick();
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  assert.equal(
+    app.drawImageCalls[0][0],
+    app.pawnIdleImage,
+    'cu o tranziție înainte de scale=1, agentul ar fi trebuit desenat încă cu sprite-ul idle (spawning)'
+  );
+
+  app.advanceMovementTick(); // al 7-lea pas: scale atinge exact 1 -> tranziție la walking
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  assert.equal(
+    app.drawImageCalls[0][0],
+    app.pawnRunImage,
+    'după ce scale-ul atinge 1, agentul ar fi trebuit să treacă la sprite-ul de alergare (walking)'
+  );
+});
+
+test('T-11 mișcare spre țintă: în walking, distanța până la țintă scade monoton la fiecare pas', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t11-monotone' });
+  // Corecție planner (T-12): SPAWN_POINT e acum originea lumii {0,0}, la fel
+  // ca prima celulă a primului proiect așezat de allocateCells — cu un
+  // singur proiect, ținta lui putea coincide cu SPAWN_POINT (distanță ~0,
+  // fără nimic de măsurat "monoton"). Un proiect-ancoră mai mare (2 agenți,
+  // sortat înaintea celui testat) ocupă originea, împingând zona testată
+  // la un inel mai departe — garantează separare reală.
+  const anchor1 = makeAliveAgent({ sessionId: 'anchor-1', cwd: '/proj/anchor', name: 'anchor1' });
+  const anchor2 = makeAliveAgent({ sessionId: 'anchor-2', cwd: '/proj/anchor', name: 'anchor2' });
+  await app.setAgents([anchor1, anchor2, agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+
+  const target = agentPixelPosition(app, agent);
+
+  const ticksToScaleOne = Math.ceil(1 / (MOVEMENT_DT * SPAWN_SCALE_RATE));
+  for (let i = 0; i < ticksToScaleOne; i++) app.advanceMovementTick(); // acum walking
+
+  function currentPos() {
+    app.drawImageCalls.length = 0;
+    app.sandbox.draw();
+    // Corecție planner (T-12): cu proiectul-ancoră (2 agenți, inserați
+    // primii), apelul nostru e al treilea (index 2) în ordinea de inserare
+    // a `agentMovement`, nu primul — [0] ar fi urmărit mișcarea tranzitorie
+    // a ancorei (care se stabilizează rapid lângă propria țintă, aproape de
+    // SPAWN_POINT), nu a agentului testat.
+    const [, , , , , dx, dy, dw] = app.drawImageCalls[2];
+    return { x: dx + dw / 2, y: dy + dw / 2 };
+  }
+
+  let prevDist = Math.hypot(currentPos().x - target.x, currentPos().y - target.y);
+  let steps = 0;
+  const maxSteps = 500;
+  while (prevDist > ARRIVE_RADIUS && steps < maxSteps) {
+    app.advanceMovementTick();
+    const pos = currentPos();
+    const dist = Math.hypot(pos.x - target.x, pos.y - target.y);
+    assert.ok(
+      dist <= prevDist + 1e-9,
+      `distanța până la țintă ar fi trebuit să scadă monoton (era ${prevDist}, a devenit ${dist})`
+    );
+    prevDist = dist;
+    steps++;
+  }
+  assert.ok(steps > 0, 'presetup: agentul ar fi trebuit să aibă nevoie de cel puțin un pas ca să ajungă la țintă');
+  assert.ok(
+    steps < maxSteps,
+    'agentul nu a ajuns la țintă în numărul maxim de pași testați — verifică WALK_SPEED/ARRIVE_RADIUS'
+  );
+});
+
+test('T-11 sosire: la distanță < ARRIVE_RADIUS, poziția se fixează EXACT pe țintă și starea devine at-site', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t11-arrive' });
+  await app.setAgents([agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+
+  const target = agentPixelPosition(app, agent);
+  settleMovement(app);
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  const [image, , , , , dx, dy, dw] = app.drawImageCalls[0];
+  const actual = { x: dx + dw / 2, y: dy + dw / 2 };
+
+  assertClose(actual.x, target.x, 'poziția finală ar fi trebuit să fie EXACT pe țintă (x), nu doar apropiată');
+  assertClose(actual.y, target.y, 'poziția finală ar fi trebuit să fie EXACT pe țintă (y), nu doar apropiată');
+  assert.equal(image, app.pawnIdleImage, 'la sosire (at-site), sprite-ul ar fi trebuit să revină la idle');
+});
+
+test('T-11 recalculare țintă în at-site: dacă ținta se schimbă, agentul revine în walking', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/t11-retarget';
+  const agentA = makeAliveAgent({ sessionId: 'agent-a', name: 'a', cwd });
+  await app.setAgents([agentA]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+
+  settleMovement(app); // agentA ajunge at-site, singur în proiect (fără jitter)
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  assert.equal(
+    app.drawImageCalls[0][0],
+    app.pawnIdleImage,
+    'presetup: agentul ar fi trebuit să fie at-site (idle) înainte de al doilea agent'
+  );
+
+  // Al doilea agent din ACELAȘI proiect cade probabil pe aceeași celulă
+  // (SLOTS_PER_CELL permite mai mulți pe o celulă) -> grup de 2 -> jitter ->
+  // ținta lui agentA se schimbă față de poziția single-agent de dinainte.
+  const agentB = makeAliveAgent({ sessionId: 'agent-b', name: 'b', cwd });
+  await app.setAgents([agentA, agentB]);
+
+  const oldTarget = agentPixelPosition(app, agentA);
+  const newTargets = app.sandbox.computeAgentPositions([agentA, agentB]);
+  const newTargetWorld = newTargets.get(agentA.sessionId);
+  // T-12: `oldTarget` e deja convertit în coordonate de ECRAN (agentPixelPosition
+  // aplică worldToScreen) — trebuie comparat cu ceva din același sistem de
+  // coordonate, altfel diferența de offset (centrul canvas-ului) ar face
+  // comparația mereu "diferită", indiferent dacă jitter-ul chiar a schimbat
+  // ceva sau nu.
+  const newTarget = app.sandbox.worldToScreen(newTargetWorld.x, newTargetWorld.y);
+  assert.notDeepEqual(
+    newTarget,
+    oldTarget,
+    'presetup: ținta lui agentA ar fi trebuit să se schimbe odată cu apariția lui agentB pe aceeași celulă (jitter)'
+  );
+
+  app.advanceMovementTick(); // updateAgentMovement() vede noua țintă -> at-site -> walking
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(
+    app.drawImageCalls[0][0],
+    app.pawnRunImage,
+    'după ce ținta s-a schimbat, agentul at-site ar fi trebuit să revină în walking (sprite de alergare)'
+  );
+});
+
+test('T-11 plecare critică: agent arhivat imediat după apariție (încă spawning) trece direct în leaving, din poziția/scale curente', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t11-early-leave' });
+  await app.setAgents([agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+
+  app.advanceMovementTick(); // 1 pas: încă spawning, scale mic (0.15)
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  const beforeArchive = app.drawImageCalls[0];
+  const scaleBefore = beforeArchive[7] / SPRITE_DEST_SIZE;
+  assert.ok(
+    scaleBefore > 0 && scaleBefore < 1,
+    'presetup: agentul ar fi trebuit prins încă în spawning (scale sub 1)'
+  );
+
+  // Arhivare/dispariție imediată (simulăm procesul mort/arhivat: dispare din
+  // /api/agents înainte să apuce să treacă prin walking/at-site).
+  await app.setAgents([]);
+
+  app.advanceMovementTick(); // 1 pas: ar trebui să treacă direct în leaving
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  const afterLeave = app.drawImageCalls[0];
+  assert.ok(
+    afterLeave,
+    'agentul arhivat imediat după apariție ar fi trebuit tot desenat (în leaving), nu dispărut brusc'
+  );
+  assert.equal(
+    afterLeave[0],
+    app.pawnRunImage,
+    'în leaving, sprite-ul ar fi trebuit să fie cel de alergare, nu idle'
+  );
+
+  const scaleAfter = afterLeave[7] / SPRITE_DEST_SIZE;
+  const expectedScaleAfter = Math.max(0, scaleBefore - MOVEMENT_DT * LEAVING_SHRINK_RATE);
+  assertClose(
+    scaleAfter,
+    expectedScaleAfter,
+    'scale-ul la plecare ar fi trebuit să continue de la scale-ul avut la arhivare, nu resetat la 0 sau la 1'
+  );
+});
+
+// T-11: BUG suspectat — brief-ul cere ca intrarea să dispară din
+// agentMovement doar când AMBELE praguri sunt atinse (scale<=0 ȘI poziția a
+// ajuns la SPAWN_POINT). Codul din updateAgentMovement() folosește însă
+// `if (arrived || entry.scale <= 0) { agentMovement.delete(...) }` — un SAU,
+// nu un ȘI. Cum LEAVING_SHRINK_RATE (2.2/s) face scale-ul să atingă 0 în
+// ~10 tick-uri (foarte rapid), iar drumul de întoarcere la SPAWN_POINT poate
+// dura mult mai mult, un agent aflat departe de SPAWN_POINT dispare din
+// desen când scale-ul ajunge la 0, deși încă nu a "ajuns acasă" — adică
+// dispare brusc undeva pe ecran, nu în colț, contrar descrierii din brief.
+// Acest test documentează comportamentul ACTUAL (eșuează dacă presupunerea
+// de mai sus e corectă) — planner-ul decide dacă e un bug de reparat sau o
+// simplificare acceptată.
+test('T-11 (bug suspectat) plecare: intrarea NU ar trebui să dispară doar pentru că scale-ul a ajuns la 0, dacă poziția e încă departe de SPAWN_POINT', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t11-far-leave' });
+  // Corecție planner (T-12): vezi comentariul din testul "mișcare monotonă" —
+  // proiect-ancoră mai mare ocupă originea (=SPAWN_POINT), garantând că
+  // ținta agentului testat e efectiv departe.
+  const anchor1 = makeAliveAgent({ sessionId: 'anchor-1', cwd: '/proj/anchor', name: 'anchor1' });
+  const anchor2 = makeAliveAgent({ sessionId: 'anchor-2', cwd: '/proj/anchor', name: 'anchor2' });
+  await app.setAgents([anchor1, anchor2, agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+
+  settleMovement(app); // ajunge at-site, la ținta din zonă
+  const target = agentPixelPosition(app, agent);
+  const distFromSpawn = Math.hypot(target.x - TEST_SPAWN_POINT.x, target.y - TEST_SPAWN_POINT.y);
+  assert.ok(
+    distFromSpawn > ARRIVE_RADIUS,
+    'presetup: ținta trebuie să fie suficient de departe de SPAWN_POINT ca testul să aibă sens'
+  );
+
+  await app.setAgents([]); // arhivat/mort -> intră în leaving la următorul tick
+
+  const ticksForScaleZero = Math.ceil(1 / (MOVEMENT_DT * LEAVING_SHRINK_RATE)) + 1;
+  const ticksNeededToArrive = Math.ceil(distFromSpawn / (WALK_SPEED * MOVEMENT_DT));
+  assert.ok(
+    ticksForScaleZero < ticksNeededToArrive,
+    'presetup: scale-ul trebuie să ajungă la 0 mult înainte ca agentul să fi parcurs drumul înapoi la SPAWN_POINT'
+  );
+
+  for (let i = 0; i < ticksForScaleZero; i++) app.advanceMovementTick();
+
+  // Corecție planner: draw() sare intenționat desenarea SPRITE-ului la
+  // scale===0 (nimic vizibil oricum, cod din app.js) — asta e o alegere
+  // rezonabilă a coder-ului, nu bug-ul suspectat. `agentMovement` e `const`
+  // la nivel de script, deci nu devine proprietate globală în sandbox (la
+  // fel ca `agents`/`selectedSessionId` — vezi comentariul din capul acestui
+  // fișier) — nu-l putem inspecta direct. În schimb, `arc`/`fillText` din
+  // draw() NU sunt condiționate de scale — dacă intrarea tot există în
+  // agentMovement, tot apar. Le folosim ca semnal observabil indirect al
+  // invariantului care chiar contează: intrarea NU a fost ȘTEARSĂ prematur
+  // doar pentru că un singur prag (scale) a fost atins — dacă ar fi fost
+  // ștearsă, agentul ar "dispărea" definitiv la mijlocul ecranului, în loc
+  // să continue drumul (invizibil) până la SPAWN_POINT.
+  app.arcCalls.length = 0;
+  app.fillTextCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(app.arcCalls.length, 1, 'indicatorul de status tot ar trebui desenat — intrarea nu ar trebui ștearsă doar pentru scale===0');
+  assert.ok(
+    app.fillTextCalls.some((c) => c.text === agent.name),
+    'numele agentului tot ar trebui desenat — dacă acest test eșuează, codul șterge intrarea la primul prag atins (SAU), nu la ambele (ȘI), cum cere brief-ul'
+  );
+});
+
+test('T-11 plecare — după suficiente tick-uri (ambele praguri atinse), agentul dispare complet din desen', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t11-full-leave' });
+  await app.setAgents([agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+
+  settleMovement(app);
+  await app.setAgents([]);
+  settleMovement(app, 800); // suficient pentru orice distanță în canvas-ul 720x720
+
+  app.drawImageCalls.length = 0;
+  app.arcCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(app.drawImageCalls.length, 0, 'după plecarea completă, agentul n-ar mai trebui desenat deloc');
+  assert.equal(app.arcCalls.length, 0, 'după plecarea completă, agentul n-ar mai trebui desenat deloc (arc)');
+});
+
+test('T-11 agent în leaving tot produce drawImage chiar dacă nu mai apare în /api/agents', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t11-leaving-drawn' });
+  await app.setAgents([agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+  settleMovement(app);
+
+  await app.setAgents([]); // dispare din /api/agents
+  app.advanceMovementTick(); // trece în leaving
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  assert.equal(
+    app.drawImageCalls.length,
+    1,
+    'un agent în leaving, deși absent din /api/agents, ar fi trebuit tot desenat'
+  );
+});
+
+test('T-11 alegerea sprite-ului: walking/leaving -> pawn-run, spawning/at-site -> pawn-idle', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t11-sprite-choice' });
+  await app.setAgents([agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+
+  // spawning
+  app.advanceMovementTick();
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  assert.equal(app.drawImageCalls[0][0], app.pawnIdleImage, 'spawning ar fi trebuit desenat cu sprite-ul idle');
+
+  // walking
+  const ticksToScaleOne = Math.ceil(1 / (MOVEMENT_DT * SPAWN_SCALE_RATE));
+  for (let i = 1; i < ticksToScaleOne; i++) app.advanceMovementTick();
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  assert.equal(app.drawImageCalls[0][0], app.pawnRunImage, 'walking ar fi trebuit desenat cu sprite-ul de alergare');
+
+  // at-site
+  settleMovement(app);
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  assert.equal(app.drawImageCalls[0][0], app.pawnIdleImage, 'at-site ar fi trebuit desenat cu sprite-ul idle');
+
+  // leaving
+  await app.setAgents([]);
+  app.advanceMovementTick();
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  assert.equal(app.drawImageCalls[0][0], app.pawnRunImage, 'leaving ar fi trebuit desenat cu sprite-ul de alergare');
+});
+
+test('T-11 hit-test în mișcare: click pe poziția AFIȘATĂ curentă (nu pe ținta finală) selectează agentul', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t11-hit-test-moving', name: 'runner' });
+  // Corecție planner (T-12): vezi comentariul din testul "mișcare monotonă" —
+  // proiect-ancoră mai mare ocupă originea (=SPAWN_POINT), garantând că
+  // ținta agentului testat e efectiv departe de punctul de apariție.
+  const anchor1 = makeAliveAgent({ sessionId: 'anchor-1', cwd: '/proj/anchor', name: 'anchor1' });
+  const anchor2 = makeAliveAgent({ sessionId: 'anchor-2', cwd: '/proj/anchor', name: 'anchor2' });
+  await app.setAgents([anchor1, anchor2, agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+
+  const target = agentPixelPosition(app, agent);
+
+  // Câteva tick-uri: agentul e sigur în walking, dar probabil încă departe
+  // de țintă (n-a ajuns), deci poziția curentă != poziția finală.
+  // Corecție planner (T-12): în 'spawning' (primele ~ticksToScaleOne
+  // tick-uri) agentul NU se mișcă deloc — stă fix la SPAWN_POINT, doar
+  // `scale` crește (vezi app.js). Cu doar +2 tick-uri de mers după aceea
+  // (~14px din 80px totali), poziția curentă cădea prea aproape de
+  // SPAWN_POINT — unde stă și proiectul-ancoră — și clickul selecta
+  // ancora, nu `runner`. +6 tick-uri de mers (~42px) garantează distanță
+  // >CIRCLE_RADIUS față de AMBELE capete (ancoră și țintă).
+  const ticksToScaleOne = Math.ceil(1 / (MOVEMENT_DT * SPAWN_SCALE_RATE));
+  for (let i = 0; i < ticksToScaleOne + 6; i++) app.advanceMovementTick();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  // `agentMovement` e un Map care păstrează ordinea de inserare — cu 3 agenți
+  // acum (2 ancoră + `agent`), apelul nostru e al TREILEA (index 2), nu
+  // primul. `drawImageCalls[0]` ar fi luat poziția unui agent-ancoră, complet
+  // nelegată de `target`/`agent`.
+  const [, , , , , dx, dy, dw] = app.drawImageCalls[2];
+  const currentPos = { x: dx + dw / 2, y: dy + dw / 2 };
+
+  const distToTarget = Math.hypot(currentPos.x - target.x, currentPos.y - target.y);
+  assert.ok(
+    distToTarget > CIRCLE_RADIUS,
+    'presetup: agentul trebuie să fie încă vizibil departe de țintă pentru ca testul să aibă sens'
+  );
+
+  // click pe țintă (unde agentul încă NU a ajuns) -> nu ar trebui să-l selecteze
+  app.click(target.x, target.y);
+  assert.ok(
+    !app.fakeDetails.innerHTML.includes('runner'),
+    'click pe ținta finală (unde agentul încă nu a ajuns) n-ar fi trebuit să-l selecteze'
+  );
+
+  // click pe poziția curentă -> ar trebui să-l selecteze
+  app.click(currentPos.x, currentPos.y);
+  assert.ok(
+    app.fakeDetails.innerHTML.includes('runner'),
+    'click pe poziția AFIȘATĂ curentă a agentului ar fi trebuit să-l selecteze'
+  );
+});
+
+// --- 10. Camera 2D: zoom/pan/resize (T-12) -----------------------------------
+
+test('T-12 worldToScreen/screenToWorld sunt inverse una alteia (la zoom != 1 și camera.x/y != 0)', async () => {
+  const app = await loadApp();
+
+  // Aducem camera într-o stare cu zoom != 1 ȘI translație != 0: un zoom
+  // ancorat pe un punct din afara centrului schimbă ambele.
+  app.wheel(500, 200, -600);
+  app.mouseDown(300, 300);
+  app.mouseMove(250, 340);
+  app.mouseUp(250, 340);
+
+  const zoom = getZoom(app);
+  assert.notEqual(zoom, 1, 'presetup: zoom-ul ar fi trebuit să difere de 1 după wheel');
+
+  const points = [
+    { x: 0, y: 0 },
+    { x: 123.5, y: -47.25 },
+    { x: -900, y: 400 },
+    { x: 37, y: 37 },
+  ];
+
+  for (const p of points) {
+    const screen = app.sandbox.worldToScreen(p.x, p.y);
+    const back = app.sandbox.screenToWorld(screen.x, screen.y);
+    assertClose(back.x, p.x, `screenToWorld(worldToScreen(${p.x},${p.y})).x nu revine la valoarea inițială`);
+    assertClose(back.y, p.y, `screenToWorld(worldToScreen(${p.x},${p.y})).y nu revine la valoarea inițială`);
+  }
+});
+
+test('T-12 spawn în centru la camera implicită: worldToScreen(0,0) = centrul exact al canvas-ului', async () => {
+  const app = await loadApp();
+  const center = app.sandbox.worldToScreen(0, 0);
+  assert.equal(center.x, CANVAS_CENTER_X, 'la camera implicită, originea lumii nu cade exact pe centrul orizontal al ecranului');
+  assert.equal(center.y, CANVAS_CENTER_Y, 'la camera implicită, originea lumii nu cade exact pe centrul vertical al ecranului');
+});
+
+test('T-12 zoom ancorat pe cursor: punctul de lume de sub cursor rămâne același înainte/după schimbarea zoom-ului', async () => {
+  const app = await loadApp();
+  const cursorX = 550; // deliberat NU centrul ecranului (360,360)
+  const cursorY = 150;
+
+  const worldBefore = app.sandbox.screenToWorld(cursorX, cursorY);
+
+  app.wheel(cursorX, cursorY, -300); // zoom in, ancorat pe (cursorX, cursorY)
+
+  const zoomAfter = getZoom(app);
+  assert.notEqual(zoomAfter, 1, 'presetup: zoom-ul ar fi trebuit să se schimbe după wheel');
+
+  const worldAfter = app.sandbox.screenToWorld(cursorX, cursorY);
+  assertClose(worldAfter.x, worldBefore.x, 'punctul de lume de sub cursor s-a mutat după zoom (x) — zoom-ul nu e ancorat pe cursor');
+  assertClose(worldAfter.y, worldBefore.y, 'punctul de lume de sub cursor s-a mutat după zoom (y) — zoom-ul nu e ancorat pe cursor');
+});
+
+test('T-12 clamp de zoom: wheel repetat în aceeași direcție nu depășește MIN_ZOOM/MAX_ZOOM', async () => {
+  const app = await loadApp();
+
+  for (let i = 0; i < 50; i++) app.wheel(360, 360, -1000); // zoom in agresiv, repetat
+  const zoomedIn = getZoom(app);
+  assert.ok(zoomedIn <= MAX_ZOOM + 1e-9, `zoom-ul a depășit MAX_ZOOM (${MAX_ZOOM}): ${zoomedIn}`);
+
+  for (let i = 0; i < 50; i++) app.wheel(360, 360, 1000); // zoom out agresiv, repetat
+  const zoomedOut = getZoom(app);
+  assert.ok(zoomedOut >= MIN_ZOOM - 1e-9, `zoom-ul a coborât sub MIN_ZOOM (${MIN_ZOOM}): ${zoomedOut}`);
+});
+
+test('T-12 pan: punctul de lume de sub cursor la mousedown rămâne sub cursor după mousemove, inclusiv la zoom != 1', async () => {
+  const app = await loadApp();
+
+  // Zoom cu cursorul EXACT în centrul ecranului -> schimbă doar zoom-ul, nu
+  // și camera.x/y (formula din app.js: (cursorX - canvas.width/2) === 0),
+  // ca să izolăm strict efectul împărțirii la camera.zoom din pan, fără
+  // interferența unei translații pre-existente.
+  app.wheel(CANVAS_CENTER_X, CANVAS_CENTER_Y, -700);
+  const zoom = getZoom(app);
+  assert.notEqual(zoom, 1, 'presetup: zoom-ul ar fi trebuit schimbat înainte de testul de pan');
+
+  const startX = 200;
+  const startY = 500;
+  const worldUnderCursorAtStart = app.sandbox.screenToWorld(startX, startY);
+
+  app.mouseDown(startX, startY);
+  const endX = 260; // delta cunoscut: +60
+  const endY = 470; // delta cunoscut: -30
+  app.mouseMove(endX, endY);
+
+  const worldUnderCursorNow = app.sandbox.screenToWorld(endX, endY);
+  assertClose(
+    worldUnderCursorNow.x,
+    worldUnderCursorAtStart.x,
+    'la pan, punctul de lume de sub cursor nu a rămas fix (x) — verifică împărțirea la camera.zoom în handler-ul de mousemove'
+  );
+  assertClose(
+    worldUnderCursorNow.y,
+    worldUnderCursorAtStart.y,
+    'la pan, punctul de lume de sub cursor nu a rămas fix (y) — verifică împărțirea la camera.zoom în handler-ul de mousemove'
+  );
+
+  app.mouseUp(endX, endY);
+});
+
+test('T-12 prag drag-vs-click: mișcare sub 4px tot selectează agentul de sub cursor', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t12-threshold-under', name: 'threshold-under' });
+  await app.setAgents([agent]);
+  settleMovement(app);
+  const pos = agentPixelPosition(app, agent);
+
+  app.mouseDown(pos.x, pos.y);
+  app.mouseMove(pos.x + 2, pos.y + 1); // distanță ~2.24px, sub pragul de 4px
+  app.mouseUp(pos.x + 2, pos.y + 1);
+
+  assert.ok(
+    app.fakeDetails.innerHTML.includes(agent.name),
+    'o mișcare sub pragul de 4px ar fi trebuit tot să selecteze agentul de sub cursor'
+  );
+});
+
+test('T-12 prag drag-vs-click: mișcare peste 4px NU selectează, chiar dacă punctul final e peste agent', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t12-threshold-over', name: 'threshold-over' });
+  await app.setAgents([agent]);
+  settleMovement(app);
+  const pos = agentPixelPosition(app, agent);
+
+  app.mouseDown(pos.x - 50, pos.y - 50); // start departe de agent
+  app.mouseMove(pos.x, pos.y); // se termină exact peste agent, dar distanța > 4px
+  app.mouseUp(pos.x, pos.y);
+
+  assert.equal(
+    app.fakeDetails.innerHTML,
+    '',
+    'o mișcare peste pragul de 4px n-ar fi trebuit să selecteze, chiar dacă se termină peste agent'
+  );
+});
+
+test('T-12 resize: poziții calculate ulterior reflectă noile dimensiuni ale canvas-ului', async () => {
+  const app = await loadApp();
+  const beforeCenter = app.sandbox.worldToScreen(0, 0);
+  // Comparăm proprietăți individuale, nu obiectul întreg: `beforeCenter` e un
+  // obiect din realm-ul vm, `assert.deepEqual` cu un literal din acest
+  // fișier a fost deja o sursă de fals-negative în suita asta (vezi
+  // comentariul de la testul cellForAgent, secțiunea T-10).
+  assert.equal(beforeCenter.x, CANVAS_CENTER_X);
+  assert.equal(beforeCenter.y, CANVAS_CENTER_Y);
+
+  app.resize(1000, 400);
+
+  const afterCenter = app.sandbox.worldToScreen(0, 0);
+  assert.equal(afterCenter.x, 500, 'după resize, worldToScreen(0,0).x ar fi trebuit să reflecte noua lățime (1000/2)');
+  assert.equal(afterCenter.y, 200, 'după resize, worldToScreen(0,0).y ar fi trebuit să reflecte noua înălțime (400/2)');
+});
+
+test('T-12 dimensiunile desenate ale sprite-ului scalează cu zoom-ul camerei (dw/dh dublate la zoom=2)', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t12-zoom-scale' });
+  await app.setAgents([agent]);
+  app.triggerImageLoad();
+  app.triggerRunImageLoad();
+  settleMovement(app);
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  const dwBefore = app.drawImageCalls[0][7];
+  const dhBefore = app.drawImageCalls[0][8];
+  assertClose(dwBefore, SPRITE_DEST_SIZE, 'presetup: la zoom implicit (1), dw ar fi trebuit să fie exact SPRITE_DEST_SIZE');
+
+  // Zoom exact la 2x (1 * (1 - (-1000)*0.001) = 2), cu cursorul în centrul
+  // ecranului -> nu deplasează camera.x/y, izolând strict efectul zoom-ului
+  // asupra dimensiunii desenate.
+  app.wheel(CANVAS_CENTER_X, CANVAS_CENTER_Y, -1000);
+  const zoom = getZoom(app);
+  assertClose(zoom, 2, 'presetup: zoom-ul ar fi trebuit să ajungă la exact 2 după acest wheel');
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  const dwAfter = app.drawImageCalls[0][7];
+  const dhAfter = app.drawImageCalls[0][8];
+
+  assertClose(dwAfter, dwBefore * 2, 'lățimea desenată a sprite-ului n-a scalat cu zoom-ul camerei (dw)');
+  assertClose(dhAfter, dhBefore * 2, 'înălțimea desenată a sprite-ului n-a scalat cu zoom-ul camerei (dh)');
+});

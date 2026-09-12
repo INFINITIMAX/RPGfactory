@@ -1,0 +1,70 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: monospace;
+  background: #111;
+  color: #eee;
+}
+
+#canvas {
+  display: block;
+  background: #1a1a1a;
+  cursor: pointer;
+}
+
+#title {
+  position: fixed;
+  top: 10px;
+  left: 14px;
+  margin: 0;
+  padding: 4px 10px;
+  background: rgba(17, 17, 17, 0.75);
+  border: 1px solid #333;
+  z-index: 10;
+}
+
+.details {
+  position: fixed;
+  top: 10px;
+  right: 14px;
+  padding: 10px 14px;
+  background: rgba(26, 26, 26, 0.9);
+  border: 1px solid #333;
+  max-width: 320px;
+  z-index: 10;
+}
+
+.details.hidden {
+  display: none;
+}
+
+.details div {
+  padding: 2px 0;
+}
+
+.details .label {
+  color: #888;
+  display: inline-block;
+  width: 90px;
+}
+
+.open-error {
+  color: #e05555;
+}
+
+#hidden-panel {
+  position: fixed;
+  bottom: 10px;
+  left: 14px;
+  padding: 8px 12px;
+  background: rgba(26, 26, 26, 0.9);
+  border: 1px solid #333;
+  max-width: 320px;
+  max-height: 40vh;
+  overflow-y: auto;
+  z-index: 10;
+}
