@@ -25,6 +25,9 @@ Nu construim un subset minimal și gata — obiectivul e să acoperim, în timp,
 - [x] Layout stabil la scară — T-08 (algoritm de alocare, hexagoane→pătrat) + T-09 (persistență `plots`) + T-10 (integrare în randare: zone per proiect)
 - [x] Elemente vizuale: sprite-uri reale, animație idle — T-04 (muncitor Pawn, Tiny Swords)
 - [x] **Mișcare reală** (apare, merge spre zonă, pleacă) — T-11 (mașină de stare spawning→walking→at-site→leaving, sprite de alergare, fără pathfinding/obstacole — nu ne trebuie la 2D plat)
+- [x] Zoom + pan cameră, spawn în centrul ecranului, zona de lucru pe tot ecranul — T-12
+- [x] Teren concret (fundal de apă + iarbă din tilemap real) — T-13
+- [x] Lume vie: decorații pe celule (tufe animate, stânci statice) + nori în mișcare pe fundal — T-14 + T-14b (fix suprapunere decorație/agent)
 - [ ] `blocat` — verificat 13-09-2026: **nici bot-crossing nu rezolvă asta pentru CLI** (doar pentru bookkeeping-ul aplicației desktop, la care noi n-avem acces). Ar necesita heuristic propriu (scanare `is_error` în coada transcriptului) — decizie amânată explicit de Lucian, nu e o simplă portare
 - [ ] `sărbătorește` (PR merged) — necesită integrare git/GitHub, complet absentă la noi
 - [ ] Indicator „?" dedicat pentru „are nevoie de tine" (separat de punctul de culoare de status)

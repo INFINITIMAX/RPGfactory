@@ -2257,3 +2257,305 @@ test('T-12 dimensiunile desenate ale sprite-ului scalează cu zoom-ul camerei (d
   assertClose(dwAfter, dwBefore * 2, 'lățimea desenată a sprite-ului n-a scalat cu zoom-ul camerei (dw)');
   assertClose(dhAfter, dhBefore * 2, 'înălțimea desenată a sprite-ului n-a scalat cu zoom-ul camerei (dh)');
 });
+
+// --- 11. Decorațiuni de zonă (tufe/stânci) + nori (T-14) ---------------------
+//
+// Constante citite direct din public/app.js (T-14-coder-raport.md), nu
+// ghicite — la fel ca SPRITE_FRAME_SIZE/ZONE_CELL_SIZE mai sus în acest
+// fișier.
+const BUSH_FRAME_SIZE = 128; // 8 cadre de 128x128, așezate orizontal
+// Corecție planner (T-14b): valorile reale au fost micșorate de coder ca să
+// nu se mai suprapună decorația cu sprite-ul agentului (vezi
+// docs/handoff/T-14b-coder-raport.md) — 40/4 erau geometric imposibile de
+// făcut să nu se suprapună, dat fiind un cell de 80px cu sprite de 56px
+// centrat. Copia asta din test trebuie ținută sincronă cu app.js.
+const DECORATION_DEST_SIZE = 8;
+const DECORATION_OFFSET = 2; // px
+const CLOUD_DEST_WIDTH = 180;
+const CLOUD_DEST_HEIGHT = 80;
+
+// Caută, printre proiecte-fantomă cu un singur agent/o singură celulă, unul a
+// cărui `decorationForCell` produce tipul cerut (`'bush'` sau `'rock'`).
+// Brută-forțăm pe cwd-uri diferite în loc să presupunem un cwd anume, ca
+// testul să rămână corect indiferent de funcția de hash folosită intern —
+// singurul lucru garantat e determinismul (testat separat mai jos).
+function findCellWithDecoration(app, type, maxTries = 500) {
+  for (let i = 0; i < maxTries; i++) {
+    const cwd = `/proj/t14-deco-${type}-${i}`;
+    const plotsMap = app.sandbox.allocateCells([{ id: cwd, size: 1 }], new Map());
+    const cell = plotsMap.get(cwd)[0];
+    const decoration = app.sandbox.decorationForCell(cwd, cell);
+    if (decoration && decoration.type === type) {
+      return { cwd, cell, decoration };
+    }
+  }
+  throw new Error(`nu am găsit nicio celulă cu decorație de tip "${type}" în ${maxTries} încercări`);
+}
+
+test('T-14 decorationForCell e determinist: același (projectId, celulă) dă mereu același rezultat', async () => {
+  const { sandbox } = await loadApp();
+  const cases = [
+    { projectId: '/proj/alpha', cell: { x: 0, y: 0 } },
+    { projectId: '/proj/alpha', cell: { x: 3, y: 7 } },
+    { projectId: 'C:\\Users\\lucian\\proiecte\\rpgfactory', cell: { x: 12, y: 1 } },
+  ];
+  for (const { projectId, cell } of cases) {
+    const first = sandbox.decorationForCell(projectId, cell);
+    const second = sandbox.decorationForCell(projectId, cell);
+    assert.deepEqual(
+      second,
+      first,
+      `decorationForCell(${projectId}, ${JSON.stringify(cell)}) nu e stabil la apeluri repetate`
+    );
+  }
+});
+
+test('T-14 distribuția bush/rock/gol pe un eșantion mare (300 celule) e aproximativ echilibrată (20%-45% fiecare)', async () => {
+  const { sandbox } = await loadApp();
+  const projectId = '/proj/t14-distribution';
+  const counts = { bush: 0, rock: 0, empty: 0 };
+
+  for (let x = 0; x < 30; x++) {
+    for (let y = 0; y < 10; y++) {
+      const decoration = sandbox.decorationForCell(projectId, { x, y });
+      if (!decoration) counts.empty++;
+      else if (decoration.type === 'bush') counts.bush++;
+      else if (decoration.type === 'rock') counts.rock++;
+      else assert.fail(`tip de decorație necunoscut: ${JSON.stringify(decoration)}`);
+    }
+  }
+
+  const total = 300;
+  assert.equal(counts.bush + counts.rock + counts.empty, total, 'presetup: fiecare din cele 300 de celule ar fi trebuit clasificată');
+  for (const [label, count] of Object.entries(counts)) {
+    const ratio = count / total;
+    assert.ok(
+      ratio >= 0.2 && ratio <= 0.45,
+      `categoria "${label}" are ${count}/${total} (${(ratio * 100).toFixed(1)}%), în afara intervalului 20%-45%`
+    );
+  }
+});
+
+test('T-14 fără onload pe imaginile noi, drawZones() nu desenează nicio decorație (0 drawImage) și nu aruncă', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/t14-no-load';
+  const agentList = [];
+  for (let i = 0; i < 8; i++) {
+    agentList.push(makeAliveAgent({ sessionId: `t14-agent-${i}`, name: `t14a${i}`, cwd }));
+  }
+  await app.setAgents(agentList); // populează state.plots[cwd] cu >= 2 celule
+
+  app.drawImageCalls.length = 0;
+  assert.doesNotThrow(() => app.sandbox.drawZones());
+  assert.equal(
+    app.drawImageCalls.length,
+    0,
+    'fără onload pe bush/rock, drawZones() n-ar fi trebuit să cheme deloc drawImage'
+  );
+});
+
+test('T-14 tufa animată: sx-ul desenat pentru tufă ciclează 0..7 × 128px, la fel ca sprite-ul de agent', async () => {
+  const app = await loadApp();
+  const { cwd } = findCellWithDecoration(app, 'bush');
+  await app.setAgents([makeAliveAgent({ sessionId: 't14-bush-agent', cwd })]);
+  app.triggerBushImageLoad();
+
+  const bushImg = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('bush'));
+  assert.ok(bushImg, 'presetup: nu am găsit imaginea de tufă instanțiată');
+
+  const expectedFrames = [1, 2, 3, 4, 5, 6, 7, 0, 1, 2];
+  const observedSx = [];
+  for (let i = 0; i < expectedFrames.length; i++) {
+    app.advanceAnimationFrame(); // avansează currentFrame ȘI cheamă draw()
+    const bushCalls = app.drawImageCalls.filter((args) => args[0] === bushImg);
+    const lastCall = bushCalls[bushCalls.length - 1];
+    assert.ok(lastCall, `nicio chemare de drawImage pentru tufă după avansarea #${i + 1}`);
+    observedSx.push(lastCall[1] / BUSH_FRAME_SIZE);
+  }
+
+  assert.deepEqual(
+    observedSx,
+    expectedFrames,
+    'sx-ul tufei nu ciclează 0..7×128px (sau nu se resetează după cadrul 7)'
+  );
+});
+
+test('T-14 stânca statică: sursa desenată NU se schimbă între avansări de cadru', async () => {
+  const app = await loadApp();
+  const { cwd } = findCellWithDecoration(app, 'rock');
+  await app.setAgents([makeAliveAgent({ sessionId: 't14-rock-agent', cwd })]);
+  app.triggerRockImagesLoad();
+
+  app.sandbox.draw();
+  const firstCall = app.drawImageCalls[app.drawImageCalls.length - 1];
+  assert.ok(firstCall, 'presetup: ar fi trebuit o chemare de drawImage pentru stâncă');
+  const firstImage = firstCall[0];
+  const firstArgs = firstCall.slice(1);
+
+  for (let i = 0; i < 5; i++) app.advanceAnimationFrame();
+
+  const lastCall = app.drawImageCalls[app.drawImageCalls.length - 1];
+  assert.equal(lastCall[0], firstImage, 'imaginea stâncii s-a schimbat între avansări de cadru (ar trebui statică)');
+  assert.deepEqual(
+    lastCall.slice(1),
+    firstArgs,
+    'argumentele drawImage pentru stâncă s-au schimbat între avansări de cadru (ar trebui statică)'
+  );
+});
+
+// NOTĂ pentru planner/reviewer: testul de mai jos verifică EXPLICIT cerința
+// din brief ("decorația nu trebuie să se suprapună peste centrul celulei,
+// unde stau agenții"). Fixat la T-14b: cu DECORATION_DEST_SIZE = 8 și
+// DECORATION_OFFSET = 2, dreptunghiul decorației stă strict în colțul
+// celulei, în afara pătratului central de 56×56 ocupat de sprite-ul
+// agentului, la orice nivel de zoom (marja rămâne 2·zoom > 0). Detalii în
+// docs/handoff/T-14b-coder-raport.md.
+test('T-14 poziționare: dreptunghiul decorației NU se suprapune cu dreptunghiul sprite-ului agentului din același cell (colț dreapta-jos)', async () => {
+  const app = await loadApp();
+  const { cwd, cell, decoration } = findCellWithDecoration(app, 'bush');
+  const agent = makeAliveAgent({ sessionId: 't14-overlap-agent', cwd });
+  await app.setAgents([agent]);
+  app.triggerBushImageLoad();
+  settleMovement(app); // sprite-ul agentului ajunge exact în centrul celulei
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+
+  const bushImg = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('bush'));
+  const decoCall = app.drawImageCalls.find((args) => args[0] === bushImg);
+  assert.ok(decoCall, 'presetup: decorația de tufă ar fi trebuit desenată');
+  const [, , , , , decoX, decoY, decoW, decoH] = decoCall;
+
+  const pos = agentPixelPosition(app, agent);
+  const spriteX = pos.x - SPRITE_HALF;
+  const spriteY = pos.y - SPRITE_HALF;
+
+  const overlapX = Math.min(decoX + decoW, spriteX + SPRITE_DEST_SIZE) - Math.max(decoX, spriteX);
+  const overlapY = Math.min(decoY + decoH, spriteY + SPRITE_DEST_SIZE) - Math.max(decoY, spriteY);
+
+  assert.ok(
+    overlapX <= 0 || overlapY <= 0,
+    `decorația (tip ${decoration.type}) se suprapune cu sprite-ul agentului: dreptunghi decorație=[${decoX},${decoY},${decoW}x${decoH}], sprite=[${spriteX},${spriteY},${SPRITE_DEST_SIZE}x${SPRITE_DEST_SIZE}], suprapunere=${overlapX}x${overlapY}px`
+  );
+});
+
+test('T-14 nori: updateClouds() avansează x cu speed*MOVEMENT_DT per apel (poziție citită din drawClouds)', async () => {
+  const app = await loadApp();
+  app.triggerCloudImagesLoad();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.drawClouds();
+  const before = app.drawImageCalls.map((args) => args[1]); // x pentru fiecare nor, în ordine
+
+  app.sandbox.updateClouds();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.drawClouds();
+  const after = app.drawImageCalls.map((args) => args[1]);
+
+  assert.equal(before.length, 3, 'presetup: ar fi trebuit exact 3 nori desenați');
+  assert.equal(after.length, 3, 'presetup: tot 3 nori după update');
+
+  // Vitezele exacte (8, 5, 10 px/s) sunt citite direct din array-ul `clouds`
+  // din public/app.js (T-14-coder-raport.md), nu ghicite. Al treilea nor
+  // (x inițial 900, speed 10) pornește deja peste canvas.width (720) — vezi
+  // testul de reciclare de mai jos, care izolează exact acest caz.
+  const speeds = [8, 5, 10];
+  for (let i = 0; i < 3; i++) {
+    // Dacă norul tocmai a fost reciclat la acest pas, sare peste verificarea
+    // de "avans simplu" (are propriul test dedicat mai jos).
+    if (after[i] < before[i]) continue;
+    assertClose(
+      after[i] - before[i],
+      speeds[i] * MOVEMENT_DT,
+      `norul ${i} nu a avansat cu speed*MOVEMENT_DT la un singur updateClouds()`
+    );
+  }
+});
+
+test('T-14 nori: un nor care iese din dreapta ecranului sare înapoi la x = -CLOUD_DEST_WIDTH', async () => {
+  const app = await loadApp();
+  app.triggerCloudImagesLoad();
+
+  // Al treilea nor din `clouds` (index 2, cloud1, x=900, speed=10) pornește
+  // deja peste canvas.width (720 în mock) — un singur updateClouds() e
+  // suficient să-l facă să depășească pragul și să fie reciclat.
+  app.sandbox.updateClouds();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.drawClouds();
+  const xs = app.drawImageCalls.map((args) => args[1]);
+
+  assert.equal(xs.length, 3, 'presetup: ar fi trebuit 3 nori desenați');
+  assert.equal(
+    xs[2],
+    -CLOUD_DEST_WIDTH,
+    `al treilea nor ar fi trebuit reciclat la x = -CLOUD_DEST_WIDTH (${-CLOUD_DEST_WIDTH}), primit ${xs[2]}`
+  );
+});
+
+test('T-14 ordinea de desenare: norii sunt desenați ÎNAINTE de zone (deci rămân în spatele lor)', async () => {
+  const app = await loadApp();
+  app.triggerCloudImagesLoad();
+  const cwd = '/proj/t14-order';
+  await app.setAgents([makeAliveAgent({ sessionId: 't14-order-agent', cwd })]);
+
+  app.callOrder.length = 0;
+  app.sandbox.draw();
+
+  const cloud1Img = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('cloud1'));
+  const cloud2Img = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('cloud2'));
+  const firstCloudDrawIdx = app.callOrder.findIndex(
+    (c) => c.type === 'drawImage' && (c.args[0] === cloud1Img || c.args[0] === cloud2Img)
+  );
+  // Fundalul unei celule de zonă: fillRect(x, y, ZONE_CELL_SIZE, ZONE_CELL_SIZE).
+  const firstZoneFillRectIdx = app.callOrder.findIndex(
+    (c) => c.type === 'fillRect' && c.args[2] === ZONE_CELL_SIZE && c.args[3] === ZONE_CELL_SIZE
+  );
+
+  assert.notEqual(firstCloudDrawIdx, -1, 'presetup: n-a fost desenat niciun nor');
+  assert.notEqual(firstZoneFillRectIdx, -1, 'presetup: n-a fost desenată nicio celulă de zonă');
+  assert.ok(
+    firstCloudDrawIdx < firstZoneFillRectIdx,
+    `norii ar fi trebuit desenați ÎNAINTE de zone (indice nor=${firstCloudDrawIdx}, indice zonă=${firstZoneFillRectIdx})`
+  );
+});
+
+test('T-14 norii NU se scalează cu zoom-ul camerei (dest width/height rămân fixe), spre deosebire de decorațiile de zonă', async () => {
+  const app = await loadApp();
+  app.triggerCloudImagesLoad();
+  const { cwd } = findCellWithDecoration(app, 'bush');
+  await app.setAgents([makeAliveAgent({ sessionId: 't14-zoom-agent', cwd })]);
+  app.triggerBushImageLoad();
+
+  // Zoom exact la 2x, cursor în centrul ecranului (nu deplasează camera.x/y).
+  app.wheel(CANVAS_CENTER_X, CANVAS_CENTER_Y, -1000);
+  const zoom = getZoom(app);
+  assertClose(zoom, 2, 'presetup: zoom-ul ar fi trebuit să ajungă la exact 2 după acest wheel');
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+
+  const cloud1Img = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('cloud1'));
+  const cloud2Img = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('cloud2'));
+  const cloudCall = app.drawImageCalls.find((args) => args[0] === cloud1Img || args[0] === cloud2Img);
+  assert.ok(cloudCall, 'presetup: ar fi trebuit desenat cel puțin un nor');
+  const [, , , cloudW, cloudH] = cloudCall;
+  assert.equal(cloudW, CLOUD_DEST_WIDTH, 'lățimea desenată a norului NU ar fi trebuit să scaleze cu zoom-ul camerei');
+  assert.equal(cloudH, CLOUD_DEST_HEIGHT, 'înălțimea desenată a norului NU ar fi trebuit să scaleze cu zoom-ul camerei');
+
+  const bushImg = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('bush'));
+  const bushCall = app.drawImageCalls.find((args) => args[0] === bushImg);
+  assert.ok(bushCall, 'presetup: ar fi trebuit desenată decorația de tufă');
+  const [, , , , , , , decoW, decoH] = bushCall;
+  assertClose(
+    decoW,
+    DECORATION_DEST_SIZE * 2,
+    'spre deosebire de nori, decorațiile de zonă AR TREBUI să scaleze cu zoom-ul camerei (lățime)'
+  );
+  assertClose(
+    decoH,
+    DECORATION_DEST_SIZE * 2,
+    'spre deosebire de nori, decorațiile de zonă AR TREBUI să scaleze cu zoom-ul camerei (înălțime)'
+  );
+});

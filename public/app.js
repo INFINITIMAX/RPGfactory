@@ -136,8 +136,8 @@ terrainImage.src = '/sprites/terrain-tilemap.png';
 const BUSH_FRAME_SIZE = 128; // 8 cadre de 128x128, așezate orizontal
 const BUSH_FRAME_COUNT = 8;
 const ROCK_SIZE = 64; // nativ, static
-const DECORATION_DEST_SIZE = CELL_SIZE / 2; // desenată mai mică decât celula
-const DECORATION_OFFSET = 4; // px, distanță față de colțul celulei
+const DECORATION_DEST_SIZE = 8; // desenată mult mai mică decât celula, ca să nu se suprapună cu sprite-ul agentului
+const DECORATION_OFFSET = 2; // px, distanță față de colțul celulei
 
 const bushImage = new Image();
 let bushImageLoaded = false;
