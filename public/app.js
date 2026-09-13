@@ -192,6 +192,83 @@ pawnRunImage.onload = () => {
 };
 pawnRunImage.src = '/sprites/pawn-run.png';
 
+// T-17 — cadranul geografic în care cade o poziție din lume, folosit pentru
+// tema vizuală/animația agentului aflat acolo. Y crescător în jos (canvas).
+function regionForWorldPos(x, y) {
+  if (x > 0 && y > 0) return 'forest';
+  if (x > 0 && y < 0) return 'gold';
+  return null;
+}
+
+const pawnRunAxeImage = new Image();
+let pawnRunAxeImageLoaded = false;
+pawnRunAxeImage.onload = () => { pawnRunAxeImageLoaded = true; };
+pawnRunAxeImage.src = '/sprites/pawn-run-axe.png';
+
+const pawnInteractAxeImage = new Image();
+let pawnInteractAxeImageLoaded = false;
+pawnInteractAxeImage.onload = () => { pawnInteractAxeImageLoaded = true; };
+pawnInteractAxeImage.src = '/sprites/pawn-interact-axe.png';
+
+const pawnRunPickaxeImage = new Image();
+let pawnRunPickaxeImageLoaded = false;
+pawnRunPickaxeImage.onload = () => { pawnRunPickaxeImageLoaded = true; };
+pawnRunPickaxeImage.src = '/sprites/pawn-run-pickaxe.png';
+
+const pawnInteractPickaxeImage = new Image();
+let pawnInteractPickaxeImageLoaded = false;
+pawnInteractPickaxeImage.onload = () => { pawnInteractPickaxeImageLoaded = true; };
+pawnInteractPickaxeImage.src = '/sprites/pawn-interact-pickaxe.png';
+
+// T-17 — decorațiuni fixe de cadran (copaci în pădure, aur pe stânci),
+// desenate mereu la poziții fixe din lume, indiferent de proiecte/agenți —
+// ca turnul (T-15).
+const FOREST_TREE_POSITIONS = [
+  { x: 220, y: 220 }, { x: 300, y: 260 }, { x: 260, y: 320 },
+];
+const GOLD_STONE_POSITIONS = [
+  { x: 220, y: -220 }, { x: 300, y: -260 }, { x: 260, y: -320 },
+];
+const TREE_FRAME_SIZE = 192; // 8 cadre de 192x256
+const TREE_FRAME_COUNT = 8;
+const TREE_FRAME_HEIGHT = 256;
+const TREE_DEST_WIDTH = 48;
+const TREE_DEST_HEIGHT = 64;
+const GOLD_STONE_SIZE = 128; // nativ, static
+const GOLD_STONE_DEST_SIZE = 32;
+
+const treeImage = new Image();
+let treeImageLoaded = false;
+treeImage.onload = () => { treeImageLoaded = true; };
+treeImage.src = '/sprites/tree.png';
+
+const goldStoneImage = new Image();
+let goldStoneImageLoaded = false;
+goldStoneImage.onload = () => { goldStoneImageLoaded = true; };
+goldStoneImage.src = '/sprites/gold-stone.png';
+
+function drawRegionLandmarks() {
+  if (treeImageLoaded) {
+    for (const p of FOREST_TREE_POSITIONS) {
+      const pos = worldToScreen(p.x, p.y);
+      const destW = TREE_DEST_WIDTH * camera.zoom;
+      const destH = TREE_DEST_HEIGHT * camera.zoom;
+      ctx.drawImage(
+        treeImage,
+        (currentFrame % TREE_FRAME_COUNT) * TREE_FRAME_SIZE, 0, TREE_FRAME_SIZE, TREE_FRAME_HEIGHT,
+        pos.x - destW / 2, pos.y - destH, destW, destH
+      );
+    }
+  }
+  if (goldStoneImageLoaded) {
+    for (const p of GOLD_STONE_POSITIONS) {
+      const pos = worldToScreen(p.x, p.y);
+      const destSize = GOLD_STONE_DEST_SIZE * camera.zoom;
+      ctx.drawImage(goldStoneImage, 0, 0, GOLD_STONE_SIZE, GOLD_STONE_SIZE, pos.x - destSize / 2, pos.y - destSize, destSize, destSize);
+    }
+  }
+}
+
 let currentFrame = 0;
 
 // Poziția pe grilă se calculează dintr-un hash al sessionId, nu din index-ul
@@ -460,6 +537,8 @@ function draw() {
 
   drawTower();
 
+  drawRegionLandmarks();
+
   drawZones();
 
   // T-11 — se iterează agentMovement, nu agenții vii direct: un agent în
@@ -473,9 +552,19 @@ function draw() {
     const spriteY = screenPos.y - spriteSize / 2;
 
     const running = entry.state === 'walking' || entry.state === 'leaving';
-    const spriteImage = running ? pawnRunImage : pawnImage;
-    const spriteLoaded = running ? pawnRunImageLoaded : pawnImageLoaded;
-    const frameCount = running ? RUN_SPRITE_FRAME_COUNT : SPRITE_FRAME_COUNT;
+    const region = regionForWorldPos(entry.x, entry.y);
+    let spriteImage, spriteLoaded;
+    if (region === 'forest') {
+      spriteImage = running ? pawnRunAxeImage : pawnInteractAxeImage;
+      spriteLoaded = running ? pawnRunAxeImageLoaded : pawnInteractAxeImageLoaded;
+    } else if (region === 'gold') {
+      spriteImage = running ? pawnRunPickaxeImage : pawnInteractPickaxeImage;
+      spriteLoaded = running ? pawnRunPickaxeImageLoaded : pawnInteractPickaxeImageLoaded;
+    } else {
+      spriteImage = running ? pawnRunImage : pawnImage;
+      spriteLoaded = running ? pawnRunImageLoaded : pawnImageLoaded;
+    }
+    const frameCount = region === 'forest' || region === 'gold' ? RUN_SPRITE_FRAME_COUNT : (running ? RUN_SPRITE_FRAME_COUNT : SPRITE_FRAME_COUNT);
 
     if (spriteLoaded && entry.scale > 0) {
       ctx.drawImage(

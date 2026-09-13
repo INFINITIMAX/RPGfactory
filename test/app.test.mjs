@@ -540,6 +540,66 @@ async function loadApp(options = {}) {
       img1.onload();
       img2.onload();
     },
+    // T-17: cele DOUĂ sprite-uri de topor (run + interact) — căutate după
+    // substring distinct ("pawn-run-axe"/"pawn-interact-axe"), nu index fix,
+    // la fel ca restul helper-elor trigger* din acest fișier.
+    triggerAxeImagesLoad() {
+      const runImg = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('pawn-run-axe'));
+      const interactImg = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('pawn-interact-axe'));
+      assert.ok(runImg, 'app.js n-a instanțiat nicio Image() cu src conținând "pawn-run-axe"');
+      assert.ok(interactImg, 'app.js n-a instanțiat nicio Image() cu src conținând "pawn-interact-axe"');
+      assert.equal(typeof runImg.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea pawn-run-axe');
+      assert.equal(typeof interactImg.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea pawn-interact-axe');
+      runImg.onload();
+      interactImg.onload();
+    },
+    // T-17: analog cu triggerAxeImagesLoad, pentru sprite-urile de târnăcop.
+    triggerPickaxeImagesLoad() {
+      const runImg = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('pawn-run-pickaxe'));
+      const interactImg = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('pawn-interact-pickaxe'));
+      assert.ok(runImg, 'app.js n-a instanțiat nicio Image() cu src conținând "pawn-run-pickaxe"');
+      assert.ok(interactImg, 'app.js n-a instanțiat nicio Image() cu src conținând "pawn-interact-pickaxe"');
+      assert.equal(typeof runImg.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea pawn-run-pickaxe');
+      assert.equal(typeof interactImg.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea pawn-interact-pickaxe');
+      runImg.onload();
+      interactImg.onload();
+    },
+    // T-17: imaginea copacului (landmark animat de cadran pădure).
+    triggerTreeImageLoad() {
+      const img = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('tree.png'));
+      assert.ok(img, 'app.js n-a instanțiat nicio Image() cu src conținând "tree.png"');
+      assert.equal(typeof img.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea tree.png');
+      img.onload();
+    },
+    // T-17: imaginea bolovanului de aur (landmark static de cadran aur).
+    triggerGoldStoneImageLoad() {
+      const img = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('gold-stone'));
+      assert.ok(img, 'app.js n-a instanțiat nicio Image() cu src conținând "gold-stone"');
+      assert.equal(typeof img.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea gold-stone');
+      img.onload();
+    },
+    // T-17: referințe directe la instanțele Image() ale sprite-urilor/
+    // landmark-urilor noi, utile pentru verificarea prin IDENTITATE a ce
+    // imagine a fost pasată la ctx.drawImage(...) (args[0]), la fel ca
+    // pawnIdleImage/pawnRunImage de mai jos.
+    get pawnRunAxeImage() {
+      return imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('pawn-run-axe'));
+    },
+    get pawnInteractAxeImage() {
+      return imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('pawn-interact-axe'));
+    },
+    get pawnRunPickaxeImage() {
+      return imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('pawn-run-pickaxe'));
+    },
+    get pawnInteractPickaxeImage() {
+      return imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('pawn-interact-pickaxe'));
+    },
+    get treeImage() {
+      return imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('tree.png'));
+    },
+    get goldStoneImage() {
+      return imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('gold-stone'));
+    },
     // T-13: expuse pentru verificarea decupării peticului de iarbă pe
     // canvas-ul offscreen (vezi document.createElement mai sus).
     offscreenCreateCalls,
@@ -2641,3 +2701,448 @@ test('T-14 poziționare: dreptunghiul decorației NU se suprapune cu dreptunghiu
 // T-15: testele de nori (updateClouds/drawClouds, reciclare la marginea
 // ecranului, ordinea nori-vs-zone, nescalarea cu zoom-ul) au fost ELIMINATE
 // — norii nu mai există în app.js (vezi raportul tester T-15).
+
+// --- 12. Zone tematice pădure/aur + landmark-uri fixe (T-17) ----------------
+//
+// Constante citite direct din docs/handoff/T-17-coder.md/T-17-coder-raport.md
+// (nu ghicite), la fel ca BUSH_FRAME_SIZE/DECORATION_DEST_SIZE mai sus.
+const FOREST_TREE_POSITIONS = [
+  { x: 220, y: 220 }, { x: 300, y: 260 }, { x: 260, y: 320 },
+];
+const GOLD_STONE_POSITIONS = [
+  { x: 220, y: -220 }, { x: 300, y: -260 }, { x: 260, y: -320 },
+];
+const TREE_FRAME_SIZE = 192;
+const TREE_FRAME_COUNT = 8;
+const TREE_FRAME_HEIGHT = 256;
+const TREE_DEST_WIDTH = 48;
+const TREE_DEST_HEIGHT = 64;
+const GOLD_STONE_SIZE = 128;
+const GOLD_STONE_DEST_SIZE = 32;
+
+// T-17 — numărul de tick-uri de mișcare necesare ca un agent nou-apărut să
+// termine faza 'spawning' (scale ajunge la 1) și să facă primul PAS în starea
+// 'walking' (încă neajuns la țintă). Derivat din constantele deja existente
+// în acest fișier (MOVEMENT_DT, SPAWN_SCALE_RATE), nu ghicit: vezi
+// updateAgentMovement() în public/app.js — scale creşte cu
+// MOVEMENT_DT*SPAWN_SCALE_RATE pe tick, tranziția la 'walking' se face pe
+// tick-ul în care scale atinge 1, iar primul PAS de mers se întâmplă abia pe
+// tick-ul URMĂTOR (if/else — nu ambele ramuri pe același tick).
+const SPAWN_TICKS_TO_FULL_SCALE = Math.ceil(1 / (MOVEMENT_DT * SPAWN_SCALE_RATE));
+const TICKS_TO_FIRST_WALK_STEP = SPAWN_TICKS_TO_FULL_SCALE + 1;
+
+// T-17 — celule FIXE, alese ca să cadă clar în fiecare cadran (o unitate de
+// celulă = CELL_SIZE = 80px, deci pixelul e mereu >=80px de axă — mult peste
+// pragul strict >0/<0 al regionForWorldPos, fără ambiguitate de rotunjire).
+const T17_FOREST_CELL = { x: 1, y: 1 }; // pixel (80,80) -> x>0,y>0 -> 'forest'
+const T17_GOLD_CELL = { x: 1, y: -1 }; // pixel (80,-80) -> x>0,y<0 -> 'gold'
+const T17_NEUTRAL_CELL = { x: -1, y: 0 }; // pixel (-80,0) -> x<0 -> null
+
+// T-17b (raport tester) — tehnica `stateWithPlots`/`initialState` de mai sus
+// a fost ELIMINATĂ: bootstrap-ul de la coada lui app.js
+// (`initState().then(() => { tick(); ... })`) rulează un `tick()` AUTOMAT,
+// singur, imediat ce `loadApp()` lasă micro-task-urile să se scurgă — ÎNAINTE
+// ca testul să apuce să cheme `app.setAgents([agent])`. La acel tick automat,
+// `agentsOnServer` e încă `[]` (setAgents() nu a fost chemat), deci
+// `updateZones()` vede ZERO agenți vii, `layOut([], previous)` întoarce un
+// `Map` GOL (comportament CORECT — un proiect fără agenți nu poate păstra o
+// zonă), iar celula seedată prin `initialState` e ștearsă din `state.plots`
+// înainte ca testul să apuce s-o folosească. Detalii complete + demonstrația
+// celor 2 teste care treceau "din întâmplare" (nu pentru că semănarea
+// funcționa): docs/handoff/T-17b-tester-raport.md.
+//
+// Tehnică nouă, verificată direct în zones.js (nu presupusă): pentru un
+// proiect nou ("fresh", fără `previous`), layOut() alege mereu prima celulă
+// LIBERĂ dintr-un pool construit în ordinea inelelor spiralei (`ring(0)`,
+// `ring(1)`, `ring(2)`, ...), identic indiferent de id-ul proiectului.
+// `ring(0) = [{0,0}]` e mereu rezervat turnului (scos din pool). Citite
+// direct din codul lui `ring()`:
+//   ring(1) = [{-1,0}, {0,1}, {0,-1}, {1,0}]                      (4 celule)
+//   ring(2) = [{-2,0}, {-1,1}, {-1,-1}, {0,2}, {0,-2}, {1,1}, {1,-1}, {2,0}]
+// Toate proiectele din testele de mai jos au exact 1 agent fiecare
+// (cellsNeeded(1) = 1, `want` = 1 pentru toate) și sunt inserate simultan
+// într-un singur `setAgents()` — la egalitate de `size`, `Array.prototype
+// .sort` e stabil (folosit deja de app.js la sortarea proiectelor), deci
+// ordinea de alocare urmează exact ordinea array-ului dat lui `setAgents()`
+// (fillere ÎNAINTE de proiectul testat). Rezultă:
+//   proiect #1..#4  -> ring(1), în ordine: {-1,0}, {0,1}, {0,-1}, {1,0}
+//   proiect #5..#9  -> primele 5 din ring(2): {-2,0},{-1,1},{-1,-1},{0,2},{0,-2}
+//   proiect #10     -> a 6-a din ring(2) = {1,1}  (forest)
+//   proiect #11     -> a 7-a din ring(2) = {1,-1} (gold)
+// Deci: 9 fillere -> al 10-lea proiect cade pe forest; 10 fillere (cele 9 +
+// proiectul forest însuși) -> al 11-lea proiect cade pe gold. FIECARE test de
+// mai jos VERIFICĂ programatic acest calcul cu `computeAgentPositions()`
+// (funcția de producție reală) înainte de a face aserția centrală — nu-l
+// presupune pe hârtie (la T-16b, un calcul similar, nevalidat programatic, s-
+// a dovedit geometric imposibil; aici s-a confirmat corect, dar tot prin
+// verificare, nu presupunere).
+const FOREST_FILLER_COUNT = 9;
+const GOLD_FILLER_COUNT = 10; // = FOREST_FILLER_COUNT + 1 (forestAgent devine al 10-lea filler pentru gold)
+
+function makeZoneFillers(count, labelPrefix) {
+  return Array.from({ length: count }, (_, i) =>
+    makeAliveAgent({
+      sessionId: `${labelPrefix}-filler-${i}`,
+      cwd: `/proj/${labelPrefix}-filler-${i}`,
+      name: `${labelPrefix}filler${i}`,
+    })
+  );
+}
+
+// Verifică programatic (nu presupune) că agentul testat a primit poziția de
+// LUME așteptată pentru `expectedCell`, folosind `computeAgentPositions()` —
+// aceeași funcție de producție folosită de `updateAgentMovement()`/`draw()`.
+function assertAgentInCell(app, agent, expectedCell, context) {
+  // Comparăm x/y individual, nu obiectul întreg: `worldPos` vine din realm-ul
+  // `vm` (alt prototip de Object decât obiectele din fișierul de test), iar
+  // assert.deepEqual poate respinge greșit obiecte altfel identice — același
+  // pitfall documentat deja la T-09/T-10 (vezi antetul fișierului).
+  const worldPos = app.sandbox.computeAgentPositions([agent]).get(agent.sessionId);
+  const expected = { x: expectedCell.x * ZONE_CELL_SIZE, y: expectedCell.y * ZONE_CELL_SIZE };
+  const msg = `presetup (${context}): proiectul testat nu a căzut pe celula așteptată ${JSON.stringify(expectedCell)} — verifică numărul de fillere/ordinea ring() dacă acest test eșuează aici`;
+  assert.equal(worldPos.x, expected.x, msg);
+  assert.equal(worldPos.y, expected.y, msg);
+}
+
+// --- 12.1 regionForWorldPos: cele 4 cazuri de cadran -------------------------
+
+test('T-17 regionForWorldPos: x>0 și y>0 -> "forest"', async () => {
+  const { sandbox } = await loadApp();
+  assert.equal(sandbox.regionForWorldPos(5, 5), 'forest');
+  assert.equal(sandbox.regionForWorldPos(220, 220), 'forest');
+});
+
+test('T-17 regionForWorldPos: x>0 și y<0 -> "gold"', async () => {
+  const { sandbox } = await loadApp();
+  assert.equal(sandbox.regionForWorldPos(5, -5), 'gold');
+  assert.equal(sandbox.regionForWorldPos(220, -220), 'gold');
+});
+
+test('T-17 regionForWorldPos: x<0 (orice y) -> null (cadran neutru)', async () => {
+  const { sandbox } = await loadApp();
+  assert.equal(sandbox.regionForWorldPos(-5, 5), null);
+  assert.equal(sandbox.regionForWorldPos(-5, -5), null);
+});
+
+test('T-17 regionForWorldPos: pe axe (x=0 sau y=0) -> null, strict > / <, nu >= / <=', async () => {
+  const { sandbox } = await loadApp();
+  assert.equal(sandbox.regionForWorldPos(0, 5), null, 'x=0 nu ar trebui să cadă în niciun cadran');
+  assert.equal(sandbox.regionForWorldPos(0, -5), null, 'x=0 nu ar trebui să cadă în niciun cadran');
+  assert.equal(sandbox.regionForWorldPos(5, 0), null, 'y=0 nu ar trebui să cadă în niciun cadran');
+  assert.equal(sandbox.regionForWorldPos(0, 0), null, 'originea nu ar trebui să cadă în niciun cadran');
+});
+
+// --- 12.2 Sprite de agent pe cadran (idle/run × forest/gold/neutru) ---------
+
+test('T-17 agent la-site (idle) în cadranul pădure: desenat cu pawnInteractAxeImage, nu pawnImage', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/t17-forest-idle';
+  const agent = makeAliveAgent({ sessionId: 't17-forest-idle', cwd });
+  const fillers = makeZoneFillers(FOREST_FILLER_COUNT, 't17-forest-idle');
+  await app.setAgents([...fillers, agent]);
+  assertAgentInCell(app, agent, T17_FOREST_CELL, 'forest idle');
+
+  settleMovement(app); // ajunge la-site, exact pe ținta din cadranul pădure
+  app.triggerAxeImagesLoad();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(app.drawImageCalls.length, 1, 'ar fi trebuit exact o chemare de drawImage pentru agentul din cadranul pădure');
+  assert.equal(
+    app.drawImageCalls[0][0],
+    app.pawnInteractAxeImage,
+    'agentul idle din cadranul pădure ar fi trebuit desenat cu pawnInteractAxeImage'
+  );
+});
+
+test('T-17 agent care merge (walking) prin cadranul pădure: desenat cu pawnRunAxeImage, nu pawnRunImage', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/t17-forest-run';
+  const agent = makeAliveAgent({ sessionId: 't17-forest-run', cwd });
+  const fillers = makeZoneFillers(FOREST_FILLER_COUNT, 't17-forest-run');
+  await app.setAgents([...fillers, agent]);
+  assertAgentInCell(app, agent, T17_FOREST_CELL, 'forest run');
+  app.triggerAxeImagesLoad();
+
+  for (let i = 0; i < TICKS_TO_FIRST_WALK_STEP; i++) app.advanceMovementTick();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(app.drawImageCalls.length, 1, 'ar fi trebuit exact o chemare de drawImage pentru agentul aflat în mers');
+  assert.equal(
+    app.drawImageCalls[0][0],
+    app.pawnRunAxeImage,
+    'agentul aflat în mers prin cadranul pădure ar fi trebuit desenat cu pawnRunAxeImage'
+  );
+});
+
+test('T-17 agent la-site (idle) în cadranul aur: desenat cu pawnInteractPickaxeImage, nu pawnImage', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/t17-gold-idle';
+  const agent = makeAliveAgent({ sessionId: 't17-gold-idle', cwd });
+  const fillers = makeZoneFillers(GOLD_FILLER_COUNT, 't17-gold-idle');
+  await app.setAgents([...fillers, agent]);
+  assertAgentInCell(app, agent, T17_GOLD_CELL, 'gold idle');
+
+  settleMovement(app);
+  app.triggerPickaxeImagesLoad();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(app.drawImageCalls.length, 1, 'ar fi trebuit exact o chemare de drawImage pentru agentul din cadranul aur');
+  assert.equal(
+    app.drawImageCalls[0][0],
+    app.pawnInteractPickaxeImage,
+    'agentul idle din cadranul aur ar fi trebuit desenat cu pawnInteractPickaxeImage'
+  );
+});
+
+test('T-17 agent care merge (walking) prin cadranul aur: desenat cu pawnRunPickaxeImage, nu pawnRunImage', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/t17-gold-run';
+  const agent = makeAliveAgent({ sessionId: 't17-gold-run', cwd });
+  const fillers = makeZoneFillers(GOLD_FILLER_COUNT, 't17-gold-run');
+  await app.setAgents([...fillers, agent]);
+  assertAgentInCell(app, agent, T17_GOLD_CELL, 'gold run');
+  app.triggerPickaxeImagesLoad();
+
+  for (let i = 0; i < TICKS_TO_FIRST_WALK_STEP; i++) app.advanceMovementTick();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(app.drawImageCalls.length, 1, 'ar fi trebuit exact o chemare de drawImage pentru agentul aflat în mers');
+  assert.equal(
+    app.drawImageCalls[0][0],
+    app.pawnRunPickaxeImage,
+    'agentul aflat în mers prin cadranul aur ar fi trebuit desenat cu pawnRunPickaxeImage'
+  );
+});
+
+// T-17b — acest test NU are nevoie de tehnica filler: un singur proiect nou,
+// fără niciun alt agent viu, cade NATURAL pe prima celulă din ring(1)
+// ({-1,0} — vezi comentariul de mai sus, verificat direct din zones.js),
+// care e neutră (x<0). Nicio manipulare de `state.plots`/`initialState` —
+// doar `setAgents([agent])` simplu, cu poziția verificată programatic mai
+// jos înainte de aserția centrală.
+test('T-17 agent în cadran neutru: comportament NESCHIMBAT (pawnImage/pawnRunImage), non-regresie', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/t17-neutral-idle';
+  const agent = makeAliveAgent({ sessionId: 't17-neutral-idle', cwd });
+  await app.setAgents([agent]);
+  assertAgentInCell(app, agent, T17_NEUTRAL_CELL, 'neutral idle, fără fillere');
+
+  settleMovement(app);
+  app.triggerImageLoad();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(app.drawImageCalls.length, 1, 'ar fi trebuit exact o chemare de drawImage pentru agentul din cadranul neutru');
+  assert.equal(
+    app.drawImageCalls[0][0],
+    app.pawnIdleImage,
+    'agentul idle din cadranul neutru ar fi trebuit desenat tot cu pawnImage (comportament dinainte de T-17)'
+  );
+});
+
+// T-17b — refăcut cu tehnica filler: `forestAgent` (proiectul #10) joacă
+// direct rolul celui de-al 10-lea "filler" necesar ca `goldAgent` (proiectul
+// #11) să cadă pe gold — nu sunt necesare fillere suplimentare pentru gold.
+// Poziția AMBILOR agenți e verificată programatic mai jos, altfel acest test
+// n-ar dovedi nimic despre codul din T-17 (doar despre calea generică
+// spriteLoaded===false, care ar trece indiferent de cadran).
+test('T-17 fallback: dacă sprite-ul de topor/târnăcop nu s-a "încărcat", NU se desenează nimic pentru acel agent (nu aruncă)', async () => {
+  const app = await loadApp();
+  const forestCwd = '/proj/t17-forest-noload';
+  const goldCwd = '/proj/t17-gold-noload';
+  const forestAgent = makeAliveAgent({ sessionId: 't17-forest-noload', cwd: forestCwd });
+  const goldAgent = makeAliveAgent({ sessionId: 't17-gold-noload', cwd: goldCwd });
+  const fillers = makeZoneFillers(FOREST_FILLER_COUNT, 't17-fallback');
+  await app.setAgents([...fillers, forestAgent, goldAgent]);
+  assertAgentInCell(app, forestAgent, T17_FOREST_CELL, 'fallback forest');
+  assertAgentInCell(app, goldAgent, T17_GOLD_CELL, 'fallback gold');
+
+  settleMovement(app);
+  // Deliberat: NU chemăm triggerAxeImagesLoad()/triggerPickaxeImagesLoad().
+
+  assert.doesNotThrow(() => app.sandbox.draw());
+  assert.equal(
+    app.drawImageCalls.length,
+    0,
+    'fără onload pe sprite-urile de topor/târnăcop, draw() n-ar fi trebuit să cheme deloc drawImage pentru agenți'
+  );
+});
+
+test('T-17 frameCount pentru topor/târnăcop ciclează pe RUN_SPRITE_FRAME_COUNT (6), nu SPRITE_FRAME_COUNT (8), chiar și pentru varianta idle-equivalentă (interact)', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/t17-forest-frames';
+  const agent = makeAliveAgent({ sessionId: 't17-forest-frames', cwd });
+  const fillers = makeZoneFillers(FOREST_FILLER_COUNT, 't17-forest-frames');
+  await app.setAgents([...fillers, agent]);
+  assertAgentInCell(app, agent, T17_FOREST_CELL, 'forest frames');
+
+  settleMovement(app); // la-site -> desenat cu pawnInteractAxeImage (idle-equivalent)
+  app.triggerAxeImagesLoad();
+
+  // 7 avansări: currentFrame (global, mod 8) devine succesiv 1,2,3,4,5,6,7.
+  // sx desenat = (currentFrame % RUN_SPRITE_FRAME_COUNT) * SPRITE_FRAME_SIZE.
+  // La a 6-a avansare (currentFrame=6), un ciclu de 8 cadre ar fi arătat încă
+  // 6 (6%8=6); cu ciclul de 6 cadre cerut de T-17, cade deja înapoi la 0
+  // (6%6=0) — exact verificarea cerută de brief ("revine la 0, nu la 6").
+  const expectedFrameIndices = [1, 2, 3, 4, 5, 0, 1];
+  const observed = [];
+  for (let i = 0; i < expectedFrameIndices.length; i++) {
+    app.drawImageCalls.length = 0; // golește între avansări — altfel .find() tot găsește primul apel istoric, nu cel curent
+    app.advanceAnimationFrame();
+    const call = app.drawImageCalls.find((args) => args[0] === app.pawnInteractAxeImage);
+    assert.ok(call, `nicio chemare de drawImage cu pawnInteractAxeImage după avansarea #${i + 1}`);
+    observed.push(call[1] / SPRITE_FRAME_SIZE);
+  }
+
+  assert.deepEqual(
+    observed,
+    expectedFrameIndices,
+    'sx-ul pentru sprite-ul de topor (interact) nu ciclează pe 6 cadre (RUN_SPRITE_FRAME_COUNT)'
+  );
+});
+
+// --- 12.3 Landmark-uri fixe (copaci + aur) -----------------------------------
+
+test('T-17 landmark copaci: după onload, drawRegionLandmarks() desenează exact 3 drawImage(treeImage, ...), unul per FOREST_TREE_POSITIONS', async () => {
+  const app = await loadApp();
+  app.triggerTreeImageLoad();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.drawRegionLandmarks();
+
+  const treeCalls = app.drawImageCalls.filter((args) => args[0] === app.treeImage);
+  assert.equal(treeCalls.length, FOREST_TREE_POSITIONS.length, 'ar fi trebuit exact un drawImage(treeImage) per poziție din FOREST_TREE_POSITIONS');
+
+  for (const p of FOREST_TREE_POSITIONS) {
+    const pos = app.sandbox.worldToScreen(p.x, p.y);
+    const match = treeCalls.find((args) => {
+      const [, , , , , destX, destY, destW] = args;
+      return Math.abs(destX + destW / 2 - pos.x) < 1e-6;
+    });
+    assert.ok(match, `n-am găsit un drawImage(treeImage) pentru poziția (${p.x},${p.y})`);
+    const [, , , sw, sh, , destY, destW, destH] = match;
+    assert.equal(sw, TREE_FRAME_SIZE, 'sw ar fi trebuit să fie dimensiunea unui cadru de copac');
+    assert.equal(sh, TREE_FRAME_HEIGHT, 'sh ar fi trebuit să fie înălțimea completă a cadrului de copac');
+    assertClose(destY + destH, pos.y, 'baza copacului (destY+destH) nu cade pe punctul din lume al poziției');
+  }
+});
+
+test('T-17 landmark copaci: sx-ul desenat ciclează pe currentFrame % TREE_FRAME_COUNT, la fel ca tufele T-14', async () => {
+  const app = await loadApp();
+  app.triggerTreeImageLoad();
+
+  const expectedFrames = [1, 2, 3, 4, 5, 6, 7, 0, 1, 2];
+  const observed = [];
+  for (let i = 0; i < expectedFrames.length; i++) {
+    app.advanceAnimationFrame();
+    const treeCalls = app.drawImageCalls.filter((args) => args[0] === app.treeImage);
+    const lastCall = treeCalls[treeCalls.length - 1];
+    assert.ok(lastCall, `nicio chemare de drawImage(treeImage) după avansarea #${i + 1}`);
+    observed.push(lastCall[1] / TREE_FRAME_SIZE);
+  }
+
+  assert.deepEqual(observed, expectedFrames, 'sx-ul copacului nu ciclează 0..7×192px (currentFrame % TREE_FRAME_COUNT)');
+});
+
+test('T-17 landmark aur: după onload, drawRegionLandmarks() desenează exact 3 drawImage(goldStoneImage, ...), unul per GOLD_STONE_POSITIONS, sursă FIXĂ', async () => {
+  const app = await loadApp();
+  app.triggerGoldStoneImageLoad();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.drawRegionLandmarks();
+
+  const goldCalls = app.drawImageCalls.filter((args) => args[0] === app.goldStoneImage);
+  assert.equal(goldCalls.length, GOLD_STONE_POSITIONS.length, 'ar fi trebuit exact un drawImage(goldStoneImage) per poziție din GOLD_STONE_POSITIONS');
+
+  for (const call of goldCalls) {
+    const [, sx, sy, sw, sh] = call;
+    assert.equal(sx, 0, 'sursa bolovanului de aur ar fi trebuit fixă (sx=0), fără ciclare de cadre');
+    assert.equal(sy, 0, 'sursa bolovanului de aur ar fi trebuit fixă (sy=0)');
+    assert.equal(sw, GOLD_STONE_SIZE, 'sw ar fi trebuit să fie dimensiunea nativă a bolovanului de aur');
+    assert.equal(sh, GOLD_STONE_SIZE, 'sh ar fi trebuit să fie dimensiunea nativă a bolovanului de aur');
+  }
+
+  for (const p of GOLD_STONE_POSITIONS) {
+    const pos = app.sandbox.worldToScreen(p.x, p.y);
+    const match = goldCalls.find((args) => {
+      const [, , , , , destX, destY, destW, destH] = args;
+      return Math.abs(destX + destW / 2 - pos.x) < 1e-6 && Math.abs(destY + destH - pos.y) < 1e-6;
+    });
+    assert.ok(match, `n-am găsit un drawImage(goldStoneImage) ancorat la bază pentru poziția (${p.x},${p.y})`);
+  }
+});
+
+test('T-17 landmark aur: sursa desenată NU se schimbă între avansări de cadru (static, ca stâncile T-14)', async () => {
+  const app = await loadApp();
+  app.triggerGoldStoneImageLoad();
+
+  app.sandbox.drawRegionLandmarks();
+  const firstCalls = app.drawImageCalls.filter((args) => args[0] === app.goldStoneImage).map((args) => args.slice(1));
+  assert.ok(firstCalls.length > 0, 'presetup: ar fi trebuit cel puțin un drawImage(goldStoneImage)');
+
+  for (let i = 0; i < 5; i++) app.advanceAnimationFrame();
+
+  const lastCalls = app.drawImageCalls.filter((args) => args[0] === app.goldStoneImage).slice(-firstCalls.length).map((args) => args.slice(1));
+  assert.deepEqual(lastCalls, firstCalls, 'argumentele drawImage pentru bolovanul de aur s-au schimbat între avansări de cadru (ar trebui statice)');
+});
+
+test('T-17 landmark-uri: fără onload (nici tree, nici gold-stone), niciun drawImage și nu aruncă', async () => {
+  const app = await loadApp();
+
+  app.drawImageCalls.length = 0;
+  assert.doesNotThrow(() => app.sandbox.drawRegionLandmarks());
+  assert.equal(app.drawImageCalls.length, 0, 'fără onload pe tree/gold-stone, drawRegionLandmarks() n-ar fi trebuit să cheme deloc drawImage');
+});
+
+test('T-17 ancorare la bază landmark-uri: destY + destH === worldToScreen(...).y pentru un copac cunoscut, NU destY + destH/2', async () => {
+  const app = await loadApp();
+  app.triggerTreeImageLoad();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.drawRegionLandmarks();
+
+  const p = FOREST_TREE_POSITIONS[0];
+  const pos = app.sandbox.worldToScreen(p.x, p.y);
+  const treeCalls = app.drawImageCalls.filter((args) => args[0] === app.treeImage);
+  const call = treeCalls.find((args) => Math.abs(args[5] + args[7] / 2 - pos.x) < 1e-6);
+  assert.ok(call, `presetup: n-am găsit drawImage(treeImage) pentru poziția (${p.x},${p.y})`);
+
+  const [, , , , , destX, destY, destW, destH] = call;
+  assertClose(destX + destW / 2, pos.x, 'copacul nu e centrat orizontal pe punctul din lume');
+  assertClose(destY + destH, pos.y, 'baza copacului (destY+destH) nu cade pe punctul din lume — verifică ancorarea la BAZĂ');
+  assert.notEqual(
+    destY + destH / 2,
+    pos.y,
+    'dacă acest test trece cu egalitate aici, copacul e ancorat la CENTRU, nu la BAZĂ (regresie)'
+  );
+});
+
+test('T-17 ordinea de desenare: drawRegionLandmarks() (drawImage copac/aur) apare ÎNAINTE de primul strokeRect de zonă (drawZones())', async () => {
+  const app = await loadApp();
+  app.triggerTreeImageLoad();
+  app.triggerGoldStoneImageLoad();
+  const cwd = '/proj/t17-landmark-order';
+  await app.setAgents([makeAliveAgent({ sessionId: 't17-order-agent', cwd })]);
+
+  app.callOrder.length = 0;
+  app.sandbox.draw();
+
+  const treeIdx = app.callOrder.findIndex((c) => c.type === 'drawImage' && c.args[0] === app.treeImage);
+  const goldIdx = app.callOrder.findIndex((c) => c.type === 'drawImage' && c.args[0] === app.goldStoneImage);
+  const zoneStrokeIdx = app.callOrder.findIndex((c) => c.type === 'strokeRect');
+
+  assert.notEqual(treeIdx, -1, 'presetup: copacii ar fi trebuit desenați');
+  assert.notEqual(goldIdx, -1, 'presetup: bolovanii de aur ar fi trebuit desenați');
+  assert.notEqual(zoneStrokeIdx, -1, 'presetup: zona ar fi trebuit desenată (strokeRect de contur)');
+  assert.ok(treeIdx < zoneStrokeIdx, `copacii ar fi trebuit desenați ÎNAINTE de zone (indice copac=${treeIdx}, indice zonă=${zoneStrokeIdx})`);
+  assert.ok(goldIdx < zoneStrokeIdx, `bolovanii de aur ar fi trebuit desenați ÎNAINTE de zone (indice aur=${goldIdx}, indice zonă=${zoneStrokeIdx})`);
+});
