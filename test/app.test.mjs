@@ -163,6 +163,11 @@ async function loadApp(options = {}) {
       // (fillStyle) nu afectează conturul (strokeStyle rămâne culoarea de
       // proiect din ZONE_PALETTE, ca la T-10).
       strokeRectStyles.push(fakeCtx.strokeStyle);
+      // T-15: strokeRect intră și el în jurnalul unificat de ordine — de când
+      // drawZones() nu mai desenează niciun fillRect propriu, conturul de
+      // zonă e singurul semnal observabil rămas pentru verificarea ordinii
+      // turn-vs-zone.
+      callOrder.push({ type: 'strokeRect', args });
     },
     drawImage(...args) {
       drawImageCalls.push(args);
@@ -171,9 +176,10 @@ async function loadApp(options = {}) {
     fillText(text, x, y) {
       fillTextCalls.push({ text, x, y });
     },
-    // T-13: fundal de apă + iarbă, create o singură dată la onload ca
-    // CanvasPattern. Nu ne interesează randarea reală (nu avem canvas real),
-    // doar că apelul nu aruncă — întoarcem un marker simplu.
+    // T-13/T-15: fundal de iarbă (apa a fost eliminată la T-15), creat o
+    // singură dată la onload ca CanvasPattern. Nu ne interesează randarea
+    // reală (nu avem canvas real), doar că apelul nu aruncă — întoarcem un
+    // marker simplu.
     createPattern() {
       return { __fakePattern: true };
     },
@@ -497,20 +503,20 @@ async function loadApp(options = {}) {
       assert.equal(typeof img.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea pawn-idle');
       img.onload();
     },
-    // T-13: simulează evenimentul `onload` al imaginii de fundal de apă
-    // (water-bg), analog cu triggerImageLoad() de mai sus.
-    triggerWaterImageLoad() {
-      const img = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('water-bg'));
-      assert.ok(img, 'app.js n-a instanțiat nicio Image() cu src conținând "water-bg"');
-      assert.equal(typeof img.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea water-bg');
-      img.onload();
-    },
     // T-13: simulează evenimentul `onload` al imaginii de teren (tilemap din
     // care se decupează peticul de iarbă).
     triggerTerrainImageLoad() {
       const img = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('terrain-tilemap'));
       assert.ok(img, 'app.js n-a instanțiat nicio Image() cu src conținând "terrain-tilemap"');
       assert.equal(typeof img.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea terrain-tilemap');
+      img.onload();
+    },
+    // T-15: simulează evenimentul `onload` al imaginii turnului static din
+    // centrul hărții (analog cu triggerTerrainImageLoad de mai sus).
+    triggerTowerImageLoad() {
+      const img = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('tower'));
+      assert.ok(img, 'app.js n-a instanțiat nicio Image() cu src conținând "tower"');
+      assert.equal(typeof img.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea tower');
       img.onload();
     },
     // T-14: analog cu triggerImageLoad/triggerRunImageLoad de mai sus, dar
@@ -531,18 +537,6 @@ async function loadApp(options = {}) {
       assert.ok(img2, 'app.js n-a instanțiat nicio Image() cu src conținând "rock2"');
       assert.equal(typeof img1.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea rock1');
       assert.equal(typeof img2.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea rock2');
-      img1.onload();
-      img2.onload();
-    },
-    // T-14: cele DOUĂ imagini de nor (cloud1/cloud2) — array-ul `clouds`
-    // folosește ambele variante.
-    triggerCloudImagesLoad() {
-      const img1 = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('cloud1'));
-      const img2 = imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('cloud2'));
-      assert.ok(img1, 'app.js n-a instanțiat nicio Image() cu src conținând "cloud1"');
-      assert.ok(img2, 'app.js n-a instanțiat nicio Image() cu src conținând "cloud2"');
-      assert.equal(typeof img1.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea cloud1');
-      assert.equal(typeof img2.onload, 'function', 'app.js n-a atașat un handler onload pe imaginea cloud2');
       img1.onload();
       img2.onload();
     },
@@ -952,12 +946,19 @@ test('draw() desenează un indicator de status suplimentar (arc+fill) cu culoare
     'culoarea indicatorului de status ar fi trebuit să vină din colorForActivity'
   );
 
+  // T-15: zoom implicit e acum 2 (nu 1) — dimensiunea desenată a sprite-ului
+  // (deci și poziția indicatorului, calculată relativ la ea) scalează cu
+  // camera.zoom (vezi public/app.js: spriteSize = SPRITE_DEST_SIZE * scale *
+  // camera.zoom). La scale=1 (agent stabilizat, "at-site"), jumătatea reală
+  // e SPRITE_HALF * zoom, nu SPRITE_HALF fix.
+  const zoom = getZoom(app);
+  const half = SPRITE_HALF * zoom;
   const pos = agentPixelPosition(app, agent);
-  const spriteX = pos.x - SPRITE_HALF;
-  const spriteY = pos.y - SPRITE_HALF;
+  const spriteX = pos.x - half;
+  const spriteY = pos.y - half;
   const [cx, cy] = app.arcCalls[0];
-  assert.equal(cx, spriteX + SPRITE_DEST_SIZE, 'centrul indicatorului nu e în colțul dreapta-sus al sprite-ului');
-  assert.equal(cy, spriteY, 'centrul indicatorului nu e în colțul dreapta-sus al sprite-ului');
+  assertClose(cx, spriteX + half * 2, 'centrul indicatorului nu e în colțul dreapta-sus al sprite-ului');
+  assertClose(cy, spriteY, 'centrul indicatorului nu e în colțul dreapta-sus al sprite-ului');
 });
 
 test('draw() NU desenează indicatorul de status pentru agenți morți (alive=false)', async () => {
@@ -968,30 +969,35 @@ test('draw() NU desenează indicatorul de status pentru agenți morți (alive=fa
   assert.equal(app.drawImageCalls.length, 0, 'un agent mort n-ar fi trebuit desenat deloc');
 });
 
-test('la agent selectat, strokeRect e chemat cu zona sprite-ului (spriteX, spriteY, 56, 56)', async () => {
+test('la agent selectat, strokeRect e chemat cu zona sprite-ului (scalată cu zoom)', async () => {
   const app = await loadApp();
   const agent = makeAliveAgent();
   await app.setAgents([agent]);
   settleMovement(app); // T-11: poziția afișată trebuie să coincidă cu ținta
 
-  // T-10: drawZones() desenează și el strokeRect (conturul celulelor de
-  // zonă, dimensiune CELL_SIZE=80) la fiecare draw(), indiferent de
-  // selecție — deci "0 apeluri fără selecție" nu mai e adevărat. Distingem
-  // conturul de SELECȚIE de cele de ZONĂ după dimensiune (56 vs 80), nu
-  // după numărul total de apeluri.
-  const selectionStrokesBefore = app.strokeRectCalls.filter(([, , w]) => w === SPRITE_DEST_SIZE);
+  // T-15: zoom implicit e acum 2 (nu 1) — dimensiunea reală a sprite-ului
+  // (deci și a conturului de selecție) e SPRITE_DEST_SIZE * zoom, nu
+  // SPRITE_DEST_SIZE fix. Zona (drawZones()) desenează și ea strokeRect
+  // (conturul celulelor, dimensiune CELL_SIZE*zoom = 160 la zoom implicit)
+  // la fiecare draw(), indiferent de selecție — deci "0 apeluri fără
+  // selecție" nu mai e adevărat. Distingem conturul de SELECȚIE de cele de
+  // ZONĂ după dimensiune (spriteSize vs cellSizeScreen), nu după numărul
+  // total de apeluri.
+  const zoom = getZoom(app);
+  const spriteSize = SPRITE_DEST_SIZE * zoom;
+  const selectionStrokesBefore = app.strokeRectCalls.filter(([, , w]) => w === spriteSize);
   assert.equal(selectionStrokesBefore.length, 0, 'fără selecție, nu ar trebui desenat niciun contur de SELECȚIE (cele de zonă nu contează)');
 
   const pos = agentPixelPosition(app, agent);
   app.click(pos.x, pos.y); // selectează agentul (click în centrul zonei de hit-test) și redesenează
 
-  const selectionStrokesAfter = app.strokeRectCalls.filter(([, , w]) => w === SPRITE_DEST_SIZE);
-  assert.equal(selectionStrokesAfter.length, 1, 'ar fi trebuit exact un contur de selecție (dimensiune 56) după click');
+  const selectionStrokesAfter = app.strokeRectCalls.filter(([, , w]) => w === spriteSize);
+  assert.equal(selectionStrokesAfter.length, 1, `ar fi trebuit exact un contur de selecție (dimensiune ${spriteSize}) după click`);
   const [sx, sy, w, h] = selectionStrokesAfter[0];
-  assert.equal(sx, pos.x - SPRITE_HALF, 'colțul stânga-sus (x) al conturului nu corespunde poziției agentului');
-  assert.equal(sy, pos.y - SPRITE_HALF, 'colțul stânga-sus (y) al conturului nu corespunde poziției agentului');
-  assert.equal(w, SPRITE_DEST_SIZE, 'lățimea conturului ar fi trebuit să fie dimensiunea sprite-ului (56)');
-  assert.equal(h, SPRITE_DEST_SIZE, 'înălțimea conturului ar fi trebuit să fie dimensiunea sprite-ului (56)');
+  assert.equal(sx, pos.x - spriteSize / 2, 'colțul stânga-sus (x) al conturului nu corespunde poziției agentului');
+  assert.equal(sy, pos.y - spriteSize / 2, 'colțul stânga-sus (y) al conturului nu corespunde poziției agentului');
+  assert.equal(w, spriteSize, 'lățimea conturului ar fi trebuit să fie dimensiunea sprite-ului scalată cu zoom-ul');
+  assert.equal(h, spriteSize, 'înălțimea conturului ar fi trebuit să fie dimensiunea sprite-ului scalată cu zoom-ul');
 });
 
 // --- 7. Arhivare (T-07) ------------------------------------------------------
@@ -1419,7 +1425,7 @@ test('updateZones(): un agent nou dintr-un proiect nou schimbă layout-ul -> se 
   );
 });
 
-test('drawZones(): un dreptunghi per celulă a proiectului, iar eticheta e doar ultimul segment al căii', async () => {
+test('drawZones(): un strokeRect (contur) per celulă a proiectului, FĂRĂ fill propriu, iar eticheta e doar ultimul segment al căii', async () => {
   const app = await loadApp();
   const cwd = 'C:\\Users\\lucian\\proiecte\\rpgfactory';
   const agentList = [];
@@ -1430,6 +1436,11 @@ test('drawZones(): un dreptunghi per celulă a proiectului, iar eticheta e doar 
 
   const plotsMap = app.sandbox.allocateCells([{ id: cwd, size: 8 }], new Map());
   const cells = plotsMap.get(cwd);
+  // T-15: dimensiunea unei celule pe ecran e acum CELL_SIZE * camera.zoom
+  // (160 la zoom implicit 2), nu ZONE_CELL_SIZE (80, dimensiunea de LUME)
+  // direct — worldToScreen aplică zoom-ul.
+  const zoom = getZoom(app);
+  const cellScreenSize = ZONE_CELL_SIZE * zoom;
 
   app.fillRectCalls.length = 0;
   app.strokeRectCalls.length = 0;
@@ -1437,12 +1448,18 @@ test('drawZones(): un dreptunghi per celulă a proiectului, iar eticheta e doar 
 
   app.sandbox.drawZones();
 
-  assert.equal(app.fillRectCalls.length, cells.length, 'ar fi trebuit exact un fillRect (fundal) per celulă a proiectului');
-  const zoneStrokes = app.strokeRectCalls.filter((args) => args[2] === ZONE_CELL_SIZE && args[3] === ZONE_CELL_SIZE);
+  // T-15: drawZones() nu mai desenează niciun fillRect propriu — fundalul de
+  // iarbă e global, desenat o singură dată în draw(), înainte de drawZones().
+  assert.equal(
+    app.fillRectCalls.length,
+    0,
+    'drawZones() n-ar mai trebui să deseneze niciun fillRect propriu (fill-ul per-celulă a fost eliminat la T-15)'
+  );
+  const zoneStrokes = app.strokeRectCalls.filter((args) => args[2] === cellScreenSize && args[3] === cellScreenSize);
   assert.equal(
     zoneStrokes.length,
     cells.length,
-    `ar fi trebuit exact un strokeRect de ${ZONE_CELL_SIZE}x${ZONE_CELL_SIZE} per celulă a proiectului`
+    `ar fi trebuit exact un strokeRect de ${cellScreenSize}x${cellScreenSize} per celulă a proiectului`
   );
 
   const label = app.fillTextCalls.find((c) => c.text === 'rpgfactory');
@@ -1488,7 +1505,13 @@ test('colorForProject e determinist: același cwd primește aceeași culoare la 
   assert.deepEqual(first, second, 'colorForProject ar fi trebuit să întoarcă aceeași culoare pentru același cwd');
 });
 
-// --- 8b. Teren real: apă + iarbă (T-13) --------------------------------------
+// --- 8b. Teren real: iarbă globală + turn central (T-13/T-15) ---------------
+//
+// T-15: apa/norii au fost eliminate complet — fundalul e acum iarbă pe tot
+// ecranul, independent de zone/agenți (înainte, fără agenți nu exista NICIUN
+// fill de iarbă, doar apă). drawZones() nu mai desenează niciun fill propriu
+// (doar strokeRect de contur). Un turn static se desenează în centrul hărții,
+// ÎNAINTE de zone. Zoom implicit e acum 2 (nu 1).
 
 // Helper: creează un proiect cu >=1 celulă alocată în state.plots, ca
 // drawZones() să aibă ce desena (identic cu tiparul folosit deja la testul
@@ -1501,114 +1524,216 @@ async function setupZoneApp(app, cwd, agentCount = 4) {
   await app.setAgents(agentList);
 }
 
-test('draw() NU umple tot canvas-ul cu apă înainte ca imaginea de apă să se "încarce"', async () => {
+test('T-15 fundal de iarbă acoperă tot ecranul chiar și FĂRĂ nicio zonă/agent (state.plots gol)', async () => {
   const app = await loadApp();
-  await setupZoneApp(app, '/proj/water-before-load');
+  // fără setAgents -> state.plots rămâne {} — înainte de T-15, iarba era
+  // desenată doar în interiorul zonelor și n-ar fi apărut deloc aici.
+  app.triggerTerrainImageLoad();
 
-  app.fillRectCalls.length = 0;
-  app.fillRectStyles.length = 0;
-  app.sandbox.draw();
-
-  const fullCanvasFill = app.fillRectCalls.some(
-    ([x, y, w, h]) => x === 0 && y === 0 && w === CANVAS_W && h === CANVAS_H
-  );
-  assert.equal(
-    fullCanvasFill,
-    false,
-    'draw() n-ar fi trebuit să umple tot canvas-ul (fundal de apă) înainte de onload-ul imaginii de apă'
-  );
-});
-
-test('după onload pe imaginea de apă, draw() umple tot canvas-ul cu pattern-ul de apă', async () => {
-  const app = await loadApp();
-  await setupZoneApp(app, '/proj/water-after-load');
-
-  app.triggerWaterImageLoad();
   app.fillRectCalls.length = 0;
   app.fillRectStyles.length = 0;
   app.sandbox.draw();
 
   const fullCanvasFillIndex = app.fillRectCalls.findIndex(
-    ([x, y, w, h]) => x === 0 && y === 0 && w === 720 && h === 720
+    ([x, y, w, h]) => x === 0 && y === 0 && w === CANVAS_W && h === CANVAS_H
   );
   assert.notEqual(
     fullCanvasFillIndex,
     -1,
-    'draw() ar fi trebuit să cheme fillRect(0,0,canvas.width,canvas.height) după onload-ul imaginii de apă'
+    'draw() ar fi trebuit să umple tot canvas-ul cu iarbă chiar și fără nicio zonă/agent (T-15)'
   );
   assert.deepEqual(
     app.fillRectStyles[fullCanvasFillIndex],
     { __fakePattern: true },
-    'fillRect-ul de fundal ar fi trebuit să folosească pattern-ul întors de ctx.createPattern(), nu o culoare plată'
+    'fundalul ar fi trebuit să folosească pattern-ul de iarbă (createPattern), nu o culoare plată'
   );
 });
 
-test('drawZones(): după onload pe imaginea de teren, fiecare celulă foloseşte pattern-ul de iarbă, nu palette.fill', async () => {
+test('T-15 fallback: înainte de onload pe imaginea de teren, fundalul foloseşte o culoare plată, nu pattern-ul', async () => {
   const app = await loadApp();
-  await setupZoneApp(app, '/proj/grass-after-load');
+  // fără triggerTerrainImageLoad() — grassPattern e încă null în app.js.
 
+  app.fillRectCalls.length = 0;
+  app.fillRectStyles.length = 0;
+  app.sandbox.draw();
+
+  const fullCanvasFillIndex = app.fillRectCalls.findIndex(
+    ([x, y, w, h]) => x === 0 && y === 0 && w === CANVAS_W && h === CANVAS_H
+  );
+  assert.notEqual(
+    fullCanvasFillIndex,
+    -1,
+    'draw() ar fi trebuit să umple tot canvas-ul chiar înainte de onload (fallback), ca să nu rămână ecranul gol'
+  );
+  const style = app.fillRectStyles[fullCanvasFillIndex];
+  assert.notDeepEqual(
+    style,
+    { __fakePattern: true },
+    'înainte de onload, fillStyle NU ar fi trebuit să fie markerul de pattern al ierbii'
+  );
+});
+
+test('T-15 apă/nori eliminate: drawClouds/updateClouds/waterPattern/cloud1Image/cloud2Image nu mai există, iar draw() produce exact 1 fillRect de fundal', async () => {
+  const app = await loadApp();
   app.triggerTerrainImageLoad();
-  app.fillRectCalls.length = 0;
-  app.fillRectStyles.length = 0;
-  app.sandbox.drawZones();
 
-  assert.ok(app.fillRectCalls.length > 0, 'drawZones() ar fi trebuit să deseneze cel puțin o celulă');
-  for (const style of app.fillRectStyles) {
-    assert.deepEqual(
-      style,
-      { __fakePattern: true },
-      'după încărcarea terenului, fiecare celulă ar fi trebuit umplută cu pattern-ul de iarbă, nu cu palette.fill'
-    );
-  }
-});
-
-test('drawZones(): fără onload pe imaginea de teren, celulele folosesc în continuare palette.fill (fallback T-10)', async () => {
-  const app = await loadApp();
-  const cwd = '/proj/grass-fallback';
-  await setupZoneApp(app, cwd);
-
-  const palette = app.sandbox.colorForProject(cwd);
-
-  app.fillRectCalls.length = 0;
-  app.fillRectStyles.length = 0;
-  assert.doesNotThrow(() => app.sandbox.drawZones());
-
-  assert.ok(app.fillRectCalls.length > 0, 'drawZones() ar fi trebuit să deseneze cel puțin o celulă chiar fără pattern');
-  for (const style of app.fillRectStyles) {
+  for (const name of ['drawClouds', 'updateClouds', 'waterPattern', 'cloud1Image', 'cloud2Image']) {
     assert.equal(
-      style,
-      palette.fill,
-      'fără onload pe imaginea de teren, fillStyle ar fi trebuit să rămână culoarea plată din colorForProject (fallback T-10)'
+      app.sandbox[name],
+      undefined,
+      `${name} ar fi trebuit eliminat complet din app.js (T-15)`
     );
   }
+
+  app.fillRectCalls.length = 0;
+  app.sandbox.draw();
+  const fullCanvasFills = app.fillRectCalls.filter(
+    ([x, y, w, h]) => x === 0 && y === 0 && w === CANVAS_W && h === CANVAS_H
+  );
+  assert.equal(
+    fullCanvasFills.length,
+    1,
+    'draw() ar fi trebuit să producă exact UN singur fillRect de fundal (iarbă), nu apă + altceva'
+  );
 });
 
-test('drawZones(): conturul (strokeStyle) zonei rămâne culoarea de proiect indiferent dacă terenul s-a încărcat sau nu', async () => {
-  const cwdA = '/proj/contour-no-load';
-  const cwdB = '/proj/contour-with-load';
+test('T-15 zonele nu mai desenează fill propriu: singurul fillRect rămas e cel global de ecran, nu unul per celulă', async () => {
+  const app = await loadApp();
+  const cwd = '/proj/t15-no-cell-fill';
+  await setupZoneApp(app, cwd);
+  app.triggerTerrainImageLoad();
 
-  const appNoLoad = await loadApp();
-  await setupZoneApp(appNoLoad, cwdA);
-  const paletteA = appNoLoad.sandbox.colorForProject(cwdA);
-  appNoLoad.strokeRectCalls.length = 0;
-  appNoLoad.strokeRectStyles.length = 0;
-  appNoLoad.sandbox.drawZones();
-  assert.ok(appNoLoad.strokeRectStyles.length > 0, 'ar fi trebuit cel puțin un strokeRect');
-  for (const style of appNoLoad.strokeRectStyles) {
-    assert.equal(style, paletteA.stroke, 'strokeStyle ar fi trebuit să rămână culoarea de proiect (fără teren încărcat)');
-  }
+  const zoom = getZoom(app);
+  const cellScreenSize = ZONE_CELL_SIZE * zoom; // 160 la zoom implicit (2)
+  assertClose(cellScreenSize, 160, 'presetup: la zoom implicit, o celulă ar trebui să aibă 160x160px pe ecran');
 
-  const appWithLoad = await loadApp();
-  await setupZoneApp(appWithLoad, cwdB);
-  appWithLoad.triggerTerrainImageLoad();
-  const paletteB = appWithLoad.sandbox.colorForProject(cwdB);
-  appWithLoad.strokeRectCalls.length = 0;
-  appWithLoad.strokeRectStyles.length = 0;
-  appWithLoad.sandbox.drawZones();
-  assert.ok(appWithLoad.strokeRectStyles.length > 0, 'ar fi trebuit cel puțin un strokeRect');
-  for (const style of appWithLoad.strokeRectStyles) {
-    assert.equal(style, paletteB.stroke, 'strokeStyle ar fi trebuit să rămână culoarea de proiect (cu teren încărcat, pattern doar pe fillStyle)');
-  }
+  app.fillRectCalls.length = 0;
+  app.sandbox.draw();
+
+  const cellFills = app.fillRectCalls.filter(([, , w, h]) => w === cellScreenSize && h === cellScreenSize);
+  assert.equal(
+    cellFills.length,
+    0,
+    'nu ar mai trebui să existe niciun fillRect cu dimensiunea unei celule de zonă (fill-ul per-celulă a fost eliminat)'
+  );
+
+  const fullCanvasFills = app.fillRectCalls.filter(
+    ([x, y, w, h]) => x === 0 && y === 0 && w === CANVAS_W && h === CANVAS_H
+  );
+  assert.equal(fullCanvasFills.length, 1, 'ar fi trebuit să existe exact un fillRect (fundalul global de iarbă)');
+});
+
+test('T-15 zoom implicit e 2 (nu 1)', async () => {
+  const app = await loadApp();
+  const zoom = getZoom(app);
+  assertClose(zoom, 2, 'camera.zoom implicit ar fi trebuit să fie 2, nu 1');
+});
+
+test('T-15 spawn point rămâne exact în centrul canvas-ului la zoom implicit (2)', async () => {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: '/proj/t15-spawn-center' });
+  await app.setAgents([agent]); // agentMovement încă gol
+  app.advanceMovementTick(); // primul pas: creează intrarea 'spawning' la SPAWN_POINT
+  app.triggerImageLoad();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+
+  assert.equal(app.drawImageCalls.length, 1, 'presetup: agentul nou ar fi trebuit desenat');
+  const [, , , , , dx, dy, dw, dh] = app.drawImageCalls[0];
+  const centerX = dx + dw / 2;
+  const centerY = dy + dh / 2;
+  assertClose(centerX, TEST_SPAWN_POINT.x, 'centrul sprite-ului de apariție nu cade pe centrul canvas-ului (x) la zoom implicit 2');
+  assertClose(centerY, TEST_SPAWN_POINT.y, 'centrul sprite-ului de apariție nu cade pe centrul canvas-ului (y) la zoom implicit 2');
+});
+
+test('T-15 turn: după onload, se desenează centrat orizontal pe ecran și ANCORAT LA BAZĂ (nu la centru)', async () => {
+  const app = await loadApp();
+  app.triggerTowerImageLoad();
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+
+  const towerImg = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('tower'));
+  const towerCall = app.drawImageCalls.find((args) => args[0] === towerImg);
+  assert.ok(towerCall, 'ar fi trebuit desenat turnul (drawImage cu imaginea towerImage)');
+
+  const [, destX, destY, destW, destH] = towerCall;
+  assertClose(destX + destW / 2, CANVAS_CENTER_X, 'turnul nu e centrat orizontal pe centrul ecranului');
+  assertClose(
+    destY + destH,
+    CANVAS_CENTER_Y,
+    'baza turnului (destY+destH) nu cade pe centrul vertical al ecranului — verifică ancorarea la BAZĂ, nu la centru'
+  );
+  assert.notEqual(
+    destY + destH / 2,
+    CANVAS_CENTER_Y,
+    'dacă acest test trece cu egalitate aici, turnul e ancorat la CENTRU, nu la BAZĂ (regresie)'
+  );
+});
+
+test('T-15 turn: NU se desenează înainte de onload pe imaginea turnului', async () => {
+  const app = await loadApp();
+  app.sandbox.draw();
+
+  const towerImg = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('tower'));
+  const towerCall = app.drawImageCalls.find((args) => args[0] === towerImg);
+  assert.equal(towerCall, undefined, 'turnul n-ar fi trebuit desenat înainte de onload');
+});
+
+test('T-15 turn: dimensiunile desenate scalează cu zoom-ul camerei (dublate quando zoom-ul se dublează)', async () => {
+  const app = await loadApp();
+  app.triggerTowerImageLoad();
+  const towerImg = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('tower'));
+
+  // zoom out la exact 1 (jumătate din implicitul 2): factor 0.5 => deltaY=500
+  app.wheel(CANVAS_CENTER_X, CANVAS_CENTER_Y, 500);
+  const zoom1 = getZoom(app);
+  assertClose(zoom1, 1, 'presetup: zoom-ul ar fi trebuit să ajungă la exact 1 după acest wheel');
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  const callAtZoom1 = app.drawImageCalls.find((args) => args[0] === towerImg);
+  assert.ok(callAtZoom1, 'presetup: turnul ar fi trebuit desenat la zoom 1');
+  const [, , , destWAt1, destHAt1] = callAtZoom1;
+
+  // dublăm zoom-ul (1 -> 2): factor 2 => deltaY = -1000
+  app.wheel(CANVAS_CENTER_X, CANVAS_CENTER_Y, -1000);
+  const zoom2 = getZoom(app);
+  assertClose(zoom2, 2, 'presetup: zoom-ul ar fi trebuit dublat la exact 2');
+
+  app.drawImageCalls.length = 0;
+  app.sandbox.draw();
+  const callAtZoom2 = app.drawImageCalls.find((args) => args[0] === towerImg);
+  assert.ok(callAtZoom2, 'presetup: turnul ar fi trebuit desenat la zoom 2');
+  const [, , , destWAt2, destHAt2] = callAtZoom2;
+
+  assertClose(destWAt2, destWAt1 * 2, 'lățimea desenată a turnului nu s-a dublat odată cu zoom-ul camerei');
+  assertClose(destHAt2, destHAt1 * 2, 'înălțimea desenată a turnului nu s-a dublat odată cu zoom-ul camerei');
+});
+
+test('T-15 ordinea de desenare: turnul se desenează ÎNAINTE de zone (rămâne în spatele lor dacă se suprapun)', async () => {
+  const app = await loadApp();
+  app.triggerTowerImageLoad();
+  const cwd = '/proj/t15-tower-order';
+  await app.setAgents([makeAliveAgent({ sessionId: 't15-order-agent', cwd })]);
+  app.triggerTerrainImageLoad();
+
+  app.callOrder.length = 0;
+  app.sandbox.draw();
+
+  const towerImg = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('tower'));
+  const towerIdx = app.callOrder.findIndex((c) => c.type === 'drawImage' && c.args[0] === towerImg);
+  // Singurul strokeRect existent la acest moment (fără agent selectat) e cel
+  // desenat de drawZones() pentru conturul celulei.
+  const zoneStrokeIdx = app.callOrder.findIndex((c) => c.type === 'strokeRect');
+
+  assert.notEqual(towerIdx, -1, 'presetup: turnul ar fi trebuit desenat');
+  assert.notEqual(zoneStrokeIdx, -1, 'presetup: zona ar fi trebuit desenată (strokeRect de contur)');
+  assert.ok(
+    towerIdx < zoneStrokeIdx,
+    `turnul ar fi trebuit desenat ÎNAINTE de zone (indice turn=${towerIdx}, indice zonă=${zoneStrokeIdx})`
+  );
 });
 
 test('decuparea peticului de iarbă: canvas-ul offscreen se creează o singură dată, nu la fiecare draw()', async () => {
@@ -1676,7 +1801,10 @@ test('T-11 apariție: agent nou primește o intrare la SPAWN_POINT, stare spawni
   assert.equal(app.drawImageCalls.length, 1, 'agentul nou ar fi trebuit desenat (idle) după încărcarea imaginii');
   const [image, , , , , dx, dy, dw, dh] = app.drawImageCalls[0];
   const expectedScale = MOVEMENT_DT * SPAWN_SCALE_RATE; // 0.15, sub pragul de 1
-  const expectedSize = SPRITE_DEST_SIZE * expectedScale;
+  // T-15: zoom implicit e acum 2 (nu 1) — dimensiunea desenată include și
+  // camera.zoom (spriteSize = SPRITE_DEST_SIZE * scale * camera.zoom).
+  const zoom = getZoom(app);
+  const expectedSize = SPRITE_DEST_SIZE * expectedScale * zoom;
   assert.equal(image, app.pawnIdleImage, 'la apariție (spawning), sprite-ul ar fi trebuit să fie idle, nu de alergare');
   assertClose(dw, expectedSize, 'lățimea sprite-ului nu reflectă scale-ul de apariție așteptat după un singur tick');
   assertClose(dh, expectedSize, 'înălțimea sprite-ului nu reflectă scale-ul de apariție așteptat după un singur tick');
@@ -1846,7 +1974,11 @@ test('T-11 plecare critică: agent arhivat imediat după apariție (încă spawn
   app.drawImageCalls.length = 0;
   app.sandbox.draw();
   const beforeArchive = app.drawImageCalls[0];
-  const scaleBefore = beforeArchive[7] / SPRITE_DEST_SIZE;
+  // T-15: zoom implicit e acum 2 (nu 1) — dw include camera.zoom, deci
+  // trebuie împărțit și la zoom (nu doar la SPRITE_DEST_SIZE) ca să obținem
+  // `scale`-ul pur, comparabil cu SPAWN_SCALE_RATE/LEAVING_SHRINK_RATE.
+  const zoom = getZoom(app);
+  const scaleBefore = beforeArchive[7] / (SPRITE_DEST_SIZE * zoom);
   assert.ok(
     scaleBefore > 0 && scaleBefore < 1,
     'presetup: agentul ar fi trebuit prins încă în spawning (scale sub 1)'
@@ -1871,7 +2003,7 @@ test('T-11 plecare critică: agent arhivat imediat după apariție (încă spawn
     'în leaving, sprite-ul ar fi trebuit să fie cel de alergare, nu idle'
   );
 
-  const scaleAfter = afterLeave[7] / SPRITE_DEST_SIZE;
+  const scaleAfter = afterLeave[7] / (SPRITE_DEST_SIZE * zoom);
   const expectedScaleAfter = Math.max(0, scaleBefore - MOVEMENT_DT * LEAVING_SHRINK_RATE);
   assertClose(
     scaleAfter,
@@ -2228,7 +2360,7 @@ test('T-12 resize: poziții calculate ulterior reflectă noile dimensiuni ale ca
   assert.equal(afterCenter.y, 200, 'după resize, worldToScreen(0,0).y ar fi trebuit să reflecte noua înălțime (400/2)');
 });
 
-test('T-12 dimensiunile desenate ale sprite-ului scalează cu zoom-ul camerei (dw/dh dublate la zoom=2)', async () => {
+test('T-12/T-15 dimensiunile desenate ale sprite-ului scalează cu zoom-ul camerei (dw/dh înjumătățite la zoom=1, față de implicitul 2)', async () => {
   const app = await loadApp();
   const agent = makeAliveAgent({ cwd: '/proj/t12-zoom-scale' });
   await app.setAgents([agent]);
@@ -2236,29 +2368,40 @@ test('T-12 dimensiunile desenate ale sprite-ului scalează cu zoom-ul camerei (d
   app.triggerRunImageLoad();
   settleMovement(app);
 
+  // T-15: zoom implicit e acum 2 (nu 1) — presetup-ul verifică asta explicit
+  // înainte de a măsura orice, ca testul să rămână corect indiferent care
+  // era valoarea implicită.
+  const zoomBefore = getZoom(app);
+  assertClose(zoomBefore, 2, 'presetup: zoom-ul implicit ar fi trebuit să fie 2 (T-15)');
+
   app.drawImageCalls.length = 0;
   app.sandbox.draw();
   const dwBefore = app.drawImageCalls[0][7];
   const dhBefore = app.drawImageCalls[0][8];
-  assertClose(dwBefore, SPRITE_DEST_SIZE, 'presetup: la zoom implicit (1), dw ar fi trebuit să fie exact SPRITE_DEST_SIZE');
+  assertClose(dwBefore, SPRITE_DEST_SIZE * zoomBefore, 'presetup: la zoom implicit (2), dw ar fi trebuit să fie SPRITE_DEST_SIZE*2');
 
-  // Zoom exact la 2x (1 * (1 - (-1000)*0.001) = 2), cu cursorul în centrul
-  // ecranului -> nu deplasează camera.x/y, izolând strict efectul zoom-ului
-  // asupra dimensiunii desenate.
-  app.wheel(CANVAS_CENTER_X, CANVAS_CENTER_Y, -1000);
-  const zoom = getZoom(app);
-  assertClose(zoom, 2, 'presetup: zoom-ul ar fi trebuit să ajungă la exact 2 după acest wheel');
+  // Zoom out la exact jumătate (factor 0.5 => deltaY=500), cu cursorul în
+  // centrul ecranului -> nu deplasează camera.x/y, izolând strict efectul
+  // zoom-ului asupra dimensiunii desenate.
+  app.wheel(CANVAS_CENTER_X, CANVAS_CENTER_Y, 500);
+  const zoomAfter = getZoom(app);
+  assertClose(zoomAfter, zoomBefore / 2, 'presetup: zoom-ul ar fi trebuit înjumătățit după acest wheel');
 
   app.drawImageCalls.length = 0;
   app.sandbox.draw();
   const dwAfter = app.drawImageCalls[0][7];
   const dhAfter = app.drawImageCalls[0][8];
 
-  assertClose(dwAfter, dwBefore * 2, 'lățimea desenată a sprite-ului n-a scalat cu zoom-ul camerei (dw)');
-  assertClose(dhAfter, dhBefore * 2, 'înălțimea desenată a sprite-ului n-a scalat cu zoom-ul camerei (dh)');
+  assertClose(dwAfter, dwBefore / 2, 'lățimea desenată a sprite-ului n-a scalat cu zoom-ul camerei (dw)');
+  assertClose(dhAfter, dhBefore / 2, 'înălțimea desenată a sprite-ului n-a scalat cu zoom-ul camerei (dh)');
 });
 
-// --- 11. Decorațiuni de zonă (tufe/stânci) + nori (T-14) ---------------------
+// --- 11. Decorațiuni de zonă (tufe/stânci) (T-14) ----------------------------
+//
+// T-15: norii (drawClouds/updateClouds/CLOUD_DEST_*) au fost eliminați din
+// app.js — testele lor din T-14 au fost eliminate mai jos (vezi raportul
+// tester T-15). Decorațiile de zonă (tufe/stânci) NU sunt afectate de T-15,
+// rămân neschimbate.
 //
 // Constante citite direct din public/app.js (T-14-coder-raport.md), nu
 // ghicite — la fel ca SPRITE_FRAME_SIZE/ZONE_CELL_SIZE mai sus în acest
@@ -2271,8 +2414,6 @@ const BUSH_FRAME_SIZE = 128; // 8 cadre de 128x128, așezate orizontal
 // centrat. Copia asta din test trebuie ținută sincronă cu app.js.
 const DECORATION_DEST_SIZE = 8;
 const DECORATION_OFFSET = 2; // px
-const CLOUD_DEST_WIDTH = 180;
-const CLOUD_DEST_HEIGHT = 80;
 
 // Caută, printre proiecte-fantomă cu un singur agent/o singură celulă, unul a
 // cărui `decorationForCell` produce tipul cerut (`'bush'` sau `'rock'`).
@@ -2426,136 +2567,23 @@ test('T-14 poziționare: dreptunghiul decorației NU se suprapune cu dreptunghiu
   assert.ok(decoCall, 'presetup: decorația de tufă ar fi trebuit desenată');
   const [, , , , , decoX, decoY, decoW, decoH] = decoCall;
 
+  // T-15: zoom implicit e acum 2 (nu 1) — dimensiunea reală a sprite-ului
+  // agentului e SPRITE_DEST_SIZE * zoom (scale=1 după settleMovement).
+  const zoom = getZoom(app);
+  const half = SPRITE_HALF * zoom;
+  const spriteSize = half * 2;
   const pos = agentPixelPosition(app, agent);
-  const spriteX = pos.x - SPRITE_HALF;
-  const spriteY = pos.y - SPRITE_HALF;
+  const spriteX = pos.x - half;
+  const spriteY = pos.y - half;
 
-  const overlapX = Math.min(decoX + decoW, spriteX + SPRITE_DEST_SIZE) - Math.max(decoX, spriteX);
-  const overlapY = Math.min(decoY + decoH, spriteY + SPRITE_DEST_SIZE) - Math.max(decoY, spriteY);
+  const overlapX = Math.min(decoX + decoW, spriteX + spriteSize) - Math.max(decoX, spriteX);
+  const overlapY = Math.min(decoY + decoH, spriteY + spriteSize) - Math.max(decoY, spriteY);
 
   assert.ok(
     overlapX <= 0 || overlapY <= 0,
-    `decorația (tip ${decoration.type}) se suprapune cu sprite-ul agentului: dreptunghi decorație=[${decoX},${decoY},${decoW}x${decoH}], sprite=[${spriteX},${spriteY},${SPRITE_DEST_SIZE}x${SPRITE_DEST_SIZE}], suprapunere=${overlapX}x${overlapY}px`
+    `decorația (tip ${decoration.type}) se suprapune cu sprite-ul agentului: dreptunghi decorație=[${decoX},${decoY},${decoW}x${decoH}], sprite=[${spriteX},${spriteY},${spriteSize}x${spriteSize}], suprapunere=${overlapX}x${overlapY}px`
   );
 });
-
-test('T-14 nori: updateClouds() avansează x cu speed*MOVEMENT_DT per apel (poziție citită din drawClouds)', async () => {
-  const app = await loadApp();
-  app.triggerCloudImagesLoad();
-
-  app.drawImageCalls.length = 0;
-  app.sandbox.drawClouds();
-  const before = app.drawImageCalls.map((args) => args[1]); // x pentru fiecare nor, în ordine
-
-  app.sandbox.updateClouds();
-
-  app.drawImageCalls.length = 0;
-  app.sandbox.drawClouds();
-  const after = app.drawImageCalls.map((args) => args[1]);
-
-  assert.equal(before.length, 3, 'presetup: ar fi trebuit exact 3 nori desenați');
-  assert.equal(after.length, 3, 'presetup: tot 3 nori după update');
-
-  // Vitezele exacte (8, 5, 10 px/s) sunt citite direct din array-ul `clouds`
-  // din public/app.js (T-14-coder-raport.md), nu ghicite. Al treilea nor
-  // (x inițial 900, speed 10) pornește deja peste canvas.width (720) — vezi
-  // testul de reciclare de mai jos, care izolează exact acest caz.
-  const speeds = [8, 5, 10];
-  for (let i = 0; i < 3; i++) {
-    // Dacă norul tocmai a fost reciclat la acest pas, sare peste verificarea
-    // de "avans simplu" (are propriul test dedicat mai jos).
-    if (after[i] < before[i]) continue;
-    assertClose(
-      after[i] - before[i],
-      speeds[i] * MOVEMENT_DT,
-      `norul ${i} nu a avansat cu speed*MOVEMENT_DT la un singur updateClouds()`
-    );
-  }
-});
-
-test('T-14 nori: un nor care iese din dreapta ecranului sare înapoi la x = -CLOUD_DEST_WIDTH', async () => {
-  const app = await loadApp();
-  app.triggerCloudImagesLoad();
-
-  // Al treilea nor din `clouds` (index 2, cloud1, x=900, speed=10) pornește
-  // deja peste canvas.width (720 în mock) — un singur updateClouds() e
-  // suficient să-l facă să depășească pragul și să fie reciclat.
-  app.sandbox.updateClouds();
-
-  app.drawImageCalls.length = 0;
-  app.sandbox.drawClouds();
-  const xs = app.drawImageCalls.map((args) => args[1]);
-
-  assert.equal(xs.length, 3, 'presetup: ar fi trebuit 3 nori desenați');
-  assert.equal(
-    xs[2],
-    -CLOUD_DEST_WIDTH,
-    `al treilea nor ar fi trebuit reciclat la x = -CLOUD_DEST_WIDTH (${-CLOUD_DEST_WIDTH}), primit ${xs[2]}`
-  );
-});
-
-test('T-14 ordinea de desenare: norii sunt desenați ÎNAINTE de zone (deci rămân în spatele lor)', async () => {
-  const app = await loadApp();
-  app.triggerCloudImagesLoad();
-  const cwd = '/proj/t14-order';
-  await app.setAgents([makeAliveAgent({ sessionId: 't14-order-agent', cwd })]);
-
-  app.callOrder.length = 0;
-  app.sandbox.draw();
-
-  const cloud1Img = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('cloud1'));
-  const cloud2Img = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('cloud2'));
-  const firstCloudDrawIdx = app.callOrder.findIndex(
-    (c) => c.type === 'drawImage' && (c.args[0] === cloud1Img || c.args[0] === cloud2Img)
-  );
-  // Fundalul unei celule de zonă: fillRect(x, y, ZONE_CELL_SIZE, ZONE_CELL_SIZE).
-  const firstZoneFillRectIdx = app.callOrder.findIndex(
-    (c) => c.type === 'fillRect' && c.args[2] === ZONE_CELL_SIZE && c.args[3] === ZONE_CELL_SIZE
-  );
-
-  assert.notEqual(firstCloudDrawIdx, -1, 'presetup: n-a fost desenat niciun nor');
-  assert.notEqual(firstZoneFillRectIdx, -1, 'presetup: n-a fost desenată nicio celulă de zonă');
-  assert.ok(
-    firstCloudDrawIdx < firstZoneFillRectIdx,
-    `norii ar fi trebuit desenați ÎNAINTE de zone (indice nor=${firstCloudDrawIdx}, indice zonă=${firstZoneFillRectIdx})`
-  );
-});
-
-test('T-14 norii NU se scalează cu zoom-ul camerei (dest width/height rămân fixe), spre deosebire de decorațiile de zonă', async () => {
-  const app = await loadApp();
-  app.triggerCloudImagesLoad();
-  const { cwd } = findCellWithDecoration(app, 'bush');
-  await app.setAgents([makeAliveAgent({ sessionId: 't14-zoom-agent', cwd })]);
-  app.triggerBushImageLoad();
-
-  // Zoom exact la 2x, cursor în centrul ecranului (nu deplasează camera.x/y).
-  app.wheel(CANVAS_CENTER_X, CANVAS_CENTER_Y, -1000);
-  const zoom = getZoom(app);
-  assertClose(zoom, 2, 'presetup: zoom-ul ar fi trebuit să ajungă la exact 2 după acest wheel');
-
-  app.drawImageCalls.length = 0;
-  app.sandbox.draw();
-
-  const cloud1Img = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('cloud1'));
-  const cloud2Img = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('cloud2'));
-  const cloudCall = app.drawImageCalls.find((args) => args[0] === cloud1Img || args[0] === cloud2Img);
-  assert.ok(cloudCall, 'presetup: ar fi trebuit desenat cel puțin un nor');
-  const [, , , cloudW, cloudH] = cloudCall;
-  assert.equal(cloudW, CLOUD_DEST_WIDTH, 'lățimea desenată a norului NU ar fi trebuit să scaleze cu zoom-ul camerei');
-  assert.equal(cloudH, CLOUD_DEST_HEIGHT, 'înălțimea desenată a norului NU ar fi trebuit să scaleze cu zoom-ul camerei');
-
-  const bushImg = app.imageInstances.find((i) => typeof i.src === 'string' && i.src.includes('bush'));
-  const bushCall = app.drawImageCalls.find((args) => args[0] === bushImg);
-  assert.ok(bushCall, 'presetup: ar fi trebuit desenată decorația de tufă');
-  const [, , , , , , , decoW, decoH] = bushCall;
-  assertClose(
-    decoW,
-    DECORATION_DEST_SIZE * 2,
-    'spre deosebire de nori, decorațiile de zonă AR TREBUI să scaleze cu zoom-ul camerei (lățime)'
-  );
-  assertClose(
-    decoH,
-    DECORATION_DEST_SIZE * 2,
-    'spre deosebire de nori, decorațiile de zonă AR TREBUI să scaleze cu zoom-ul camerei (înălțime)'
-  );
-});
+// T-15: testele de nori (updateClouds/drawClouds, reciclare la marginea
+// ecranului, ordinea nori-vs-zone, nescalarea cu zoom-ul) au fost ELIMINATE
+// — norii nu mai există în app.js (vezi raportul tester T-15).

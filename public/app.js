@@ -12,6 +12,7 @@ const COLOR_WORKING = '#2A5FAE';
 const COLOR_WAITING = '#B4801E';
 const COLOR_SLEEPING = '#888';
 const COLOR_DEFAULT = '#888';
+const FALLBACK_GRASS_COLOR = '#4a7c3f';
 
 // T-10 — o zonă per proiect, culoare ciclată dintr-o paletă mică fixă
 // (aceleași nuanțe ca indicatorii de status, plus câteva neutre), aleasă
@@ -44,7 +45,7 @@ const hiddenPanelEl = document.getElementById('hidden-panel');
 // Zoom ancorat pe cursor (principiu portat din bot-crossing, src/core/camera.js:
 // "The wheel zooms at the cursor... the ground point under the pointer is held
 // still while the camera dollies"), cu matematică 2D simplă (nu portăm codul lor).
-const camera = { x: 0, y: 0, zoom: 1 };
+const camera = { x: 0, y: 0, zoom: 2 };
 const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 3;
 
@@ -100,20 +101,14 @@ let knownAgentNames = {}; // sessionId -> name, ca să afișăm numele agențilo
 // layout-ul chiar diferă de ultimul salvat, altfel am scrie la fiecare poll.
 let lastPlotsSignature = null;
 
-// T-13 — fundal de apă (tileable) + petic de iarbă decupat din terrain-tilemap
-// (Tiny Swords), în loc de fundal gri/culoare plată. Pattern-urile se creează
-// o singură dată, după încărcarea imaginii sursă, și rămân fixe (nu urmăresc
-// camera/zoom-ul — vezi raportul T-13).
+// T-13/T-15 — petic de iarbă decupat din terrain-tilemap (Tiny Swords),
+// desenat ca fundal pe tot ecranul (T-15: nu mai există apă, iarba acoperă
+// mereu tot canvas-ul, independent de zone/agenți). Pattern-ul se creează o
+// singură dată, după încărcarea imaginii sursă, și rămâne fix (nu urmărește
+// camera/zoom-ul — vezi rapoartele T-13/T-15).
 const GRASS_PATCH_SX = 40;
 const GRASS_PATCH_SY = 60;
 const GRASS_PATCH_SIZE = 64;
-
-const waterImage = new Image();
-let waterPattern = null;
-waterImage.onload = () => {
-  waterPattern = ctx.createPattern(waterImage, 'repeat');
-};
-waterImage.src = '/sprites/water-bg.png';
 
 const terrainImage = new Image();
 let grassPattern = null;
@@ -130,6 +125,24 @@ terrainImage.onload = () => {
   grassPattern = ctx.createPattern(patchCanvas, 'repeat');
 };
 terrainImage.src = '/sprites/terrain-tilemap.png';
+
+const TOWER_WORLD_X = 0;
+const TOWER_WORLD_Y = 0;
+const TOWER_DEST_WIDTH = 64;
+const TOWER_DEST_HEIGHT = 128;
+
+const towerImage = new Image();
+let towerImageLoaded = false;
+towerImage.onload = () => { towerImageLoaded = true; };
+towerImage.src = '/sprites/tower.png';
+
+function drawTower() {
+  if (!towerImageLoaded) return;
+  const pos = worldToScreen(TOWER_WORLD_X, TOWER_WORLD_Y);
+  const destW = TOWER_DEST_WIDTH * camera.zoom;
+  const destH = TOWER_DEST_HEIGHT * camera.zoom;
+  ctx.drawImage(towerImage, pos.x - destW / 2, pos.y - destH, destW, destH);
+}
 
 // T-14 — decorațiuni pe zone (tufe animate + stânci statice) + nori care
 // plutesc peste apă, ca terenul să nu mai arate ca un dreptunghi plat.
@@ -154,28 +167,6 @@ let rock2ImageLoaded = false;
 rock2Image.onload = () => { rock2ImageLoaded = true; };
 rock2Image.src = '/sprites/rock2.png';
 
-const CLOUD_DEST_WIDTH = 180;
-const CLOUD_DEST_HEIGHT = 80;
-
-const cloud1Image = new Image();
-let cloud1ImageLoaded = false;
-cloud1Image.onload = () => { cloud1ImageLoaded = true; };
-cloud1Image.src = '/sprites/cloud1.png';
-
-const cloud2Image = new Image();
-let cloud2ImageLoaded = false;
-cloud2Image.onload = () => { cloud2ImageLoaded = true; };
-cloud2Image.src = '/sprites/cloud2.png';
-
-// Poziții proprii, în spațiul de ECRAN (ambientale, ca fundalul de apă — nu
-// urmăresc camera/zoom-ul). Actualizate la bucla de mișcare (MOVEMENT_TICK_MS,
-// aceeași folosită pentru agenți — motivat în raportul T-14).
-const clouds = [
-  { image: 'cloud1', x: 100, y: 80, speed: 8 },
-  { image: 'cloud2', x: 500, y: 150, speed: 5 },
-  { image: 'cloud1', x: 900, y: 60, speed: 10 },
-];
-
 // Decide DETERMINIST (din hash, nu Math.random()) dacă o celulă a unei zone
 // primește o decorațiune — poziția trebuie stabilă între desenări, la fel ca
 // poziționarea agenților pe hash.
@@ -184,22 +175,6 @@ function decorationForCell(projectId, cell) {
   if (h % 3 === 0) return { type: 'bush' };
   if (h % 3 === 1) return { type: 'rock', variant: h % 2 }; // 0=rock1, 1=rock2
   return null; // 1 din 3 celule rămâne goală, ca să nu fie prea aglomerat
-}
-
-function drawClouds() {
-  for (const cloud of clouds) {
-    const image = cloud.image === 'cloud1' ? cloud1Image : cloud2Image;
-    const loaded = cloud.image === 'cloud1' ? cloud1ImageLoaded : cloud2ImageLoaded;
-    if (!loaded) continue;
-    ctx.drawImage(image, cloud.x, cloud.y, CLOUD_DEST_WIDTH, CLOUD_DEST_HEIGHT);
-  }
-}
-
-function updateClouds() {
-  for (const cloud of clouds) {
-    cloud.x += cloud.speed * MOVEMENT_DT;
-    if (cloud.x > canvas.width) cloud.x = -CLOUD_DEST_WIDTH;
-  }
 }
 
 const pawnImage = new Image();
@@ -403,10 +378,8 @@ function drawZones() {
     for (const cell of cells) {
       const worldPos = zoneCellToPixels(cell);
       const pos = worldToScreen(worldPos.x, worldPos.y);
-      ctx.fillStyle = grassPattern || palette.fill;
       ctx.strokeStyle = palette.stroke;
       ctx.lineWidth = 1;
-      ctx.fillRect(pos.x - cellSizeScreen / 2, pos.y - cellSizeScreen / 2, cellSizeScreen, cellSizeScreen);
       ctx.strokeRect(pos.x - cellSizeScreen / 2, pos.y - cellSizeScreen / 2, cellSizeScreen, cellSizeScreen);
       if (cell.y < topCell.y || (cell.y === topCell.y && cell.x < topCell.x)) topCell = cell;
 
@@ -482,12 +455,10 @@ function colorForActivity(activity) {
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  if (waterPattern) {
-    ctx.fillStyle = waterPattern;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
+  ctx.fillStyle = grassPattern || FALLBACK_GRASS_COLOR;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  drawClouds();
+  drawTower();
 
   drawZones();
 
@@ -833,6 +804,5 @@ setInterval(() => {
 // cadru (125ms).
 setInterval(() => {
   updateAgentMovement();
-  updateClouds();
   draw();
 }, MOVEMENT_TICK_MS);
