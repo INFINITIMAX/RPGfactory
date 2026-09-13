@@ -103,7 +103,7 @@ async function putState(body) {
   const isRaw = typeof body === 'string';
   const res = await fetch(`${BASE_URL}/api/state`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Origin: BASE_URL },
     body: isRaw ? body : JSON.stringify(body),
   });
   let json = null;

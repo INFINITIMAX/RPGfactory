@@ -60,7 +60,7 @@ async function post(routePath, body) {
   const isRaw = typeof body === 'string';
   const res = await fetch(`${BASE_URL}${routePath}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Origin: BASE_URL },
     body: isRaw ? body : JSON.stringify(body),
   });
   let json = null;
@@ -144,3 +144,134 @@ test('serverul rămâne funcțional (GET /api/agents răspunde 200 JSON) după P
 // cod (`child.on('error', () => {})`). Testele de mai sus confirmă doar
 // contractul HTTP: status + body, exact ce spune codul, indiferent dacă
 // `rundll32` reușește sau nu.
+
+// =============================================================================
+// T-19 — Teste pentru validarea Host/Origin (isLocalRequest din server.js)
+// =============================================================================
+//
+// Folosim tot serverul pornit în `before()` de mai sus (port TEST_PORT/5393).
+// `fetch` trimite automat `Host: localhost:5393` (dedus din URL-ul cerut),
+// deci partea de `Host` din `isLocalRequest` trece implicit în toate cazurile
+// de mai jos în care nu o suprascriem explicit.
+
+// --- H1. GET fără Origin -> trece (comportament neschimbat) -----------------
+
+test('GET /api/agents fără header Origin -> 200 (GET nu necesită Origin)', async () => {
+  const res = await fetch(`${BASE_URL}/api/agents`); // fără Content-Type, fără Origin
+  assert.equal(res.status, 200);
+});
+
+// --- H2. POST cu Origin local valid -> trece gate-ul, ajunge la business logic
+
+test('POST /api/reveal cu Origin local (http://localhost:<port>) -> nu e blocat de 403, ajunge la validarea de business', async () => {
+  const { status, json } = await post('/api/reveal', { folder: VALID_ABS_FOLDER });
+  assert.equal(status, 200, 'un Origin local valid nu trebuie respins de gate-ul Host/Origin');
+  assert.deepEqual(json, { ok: true });
+});
+
+// --- H3. POST cu Origin extern -> 403, indiferent de body -------------------
+
+test('POST /api/reveal cu Origin: http://evil.com -> 403 {ok:false,error:"forbidden"}, indiferent de body', async () => {
+  const res = await fetch(`${BASE_URL}/api/reveal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'http://evil.com' },
+    body: JSON.stringify({ folder: VALID_ABS_FOLDER }),
+  });
+  const json = await res.json();
+  assert.equal(res.status, 403);
+  assert.deepEqual(json, { ok: false, error: 'forbidden' });
+});
+
+// --- H4. POST fără header Origin deloc -> 403 -------------------------------
+
+test('POST /api/reveal fără header Origin deloc -> 403 (folosind un body altfel valid)', async () => {
+  const res = await fetch(`${BASE_URL}/api/reveal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, // fără Origin, intenționat
+    body: JSON.stringify({ folder: VALID_ABS_FOLDER }),
+  });
+  const json = await res.json();
+  assert.equal(res.status, 403);
+  assert.deepEqual(json, { ok: false, error: 'forbidden' });
+});
+
+// --- H5. POST cu Origin: "null" (string literal) -> tratat ca fără origin valid -> 403
+
+test(`POST /api/reveal cu Origin: 'null' (string literal, ex. context file://) -> 403`, async () => {
+  const res = await fetch(`${BASE_URL}/api/reveal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'null' },
+    body: JSON.stringify({ folder: VALID_ABS_FOLDER }),
+  });
+  const json = await res.json();
+  assert.equal(res.status, 403);
+  assert.deepEqual(json, { ok: false, error: 'forbidden' });
+});
+
+// --- H6. Host neconform (controlat direct cu node:http, nu cu fetch) -------
+//
+// `fetch`/undici tratează `Host` ca header "forbidden" și îl ignoră/aruncă
+// dacă încerci să-l suprascrii din opțiuni — nu pune la dispoziție un mod
+// documentat de a-l falsifica. Modulul nativ `http.request`, în schimb,
+// permite suprascrierea explicită a header-ului `Host` în obiectul
+// `headers`, independent de `host`/`port` folosite pentru conexiunea TCP
+// efectivă (verificat prin citirea documentației Node: `http.request` nu
+// filtrează `Host` din `headers`). Folosim asta ca să simulăm exact
+// scenariul de DNS rebinding descris în brief: conexiune TCP reală către
+// 127.0.0.1:<port>, dar header `Host` extern.
+
+function requestWithRawHost({ host, origin }) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port: TEST_PORT,
+        path: '/api/reveal',
+        method: 'POST',
+        headers: {
+          Host: host,
+          'Content-Type': 'application/json',
+          Origin: origin,
+        },
+      },
+      (res) => {
+        let raw = '';
+        res.on('data', (chunk) => (raw += chunk));
+        res.on('end', () => {
+          let json = null;
+          try {
+            json = JSON.parse(raw);
+          } catch (e) {
+            // ok, testul de mai jos verifică oricum statusul
+          }
+          resolve({ status: res.statusCode, json });
+        });
+      }
+    );
+    req.on('error', reject);
+    req.end(JSON.stringify({ folder: VALID_ABS_FOLDER }));
+  });
+}
+
+test('POST /api/reveal cu Host: evil.com (Origin altfel local) -> 403 (Host neconform blochează, indiferent de Origin)', async () => {
+  const { status, json } = await requestWithRawHost({ host: 'evil.com', origin: BASE_URL });
+  assert.equal(status, 403);
+  assert.deepEqual(json, { ok: false, error: 'forbidden' });
+});
+
+test('POST /api/reveal cu Host: 127.0.0.1:<port> corect și Origin local -> nu e blocat de 403 (control: setup-ul cu http.request funcționează și pentru cazul valid)', async () => {
+  const { status } = await requestWithRawHost({ host: `127.0.0.1:${TEST_PORT}`, origin: `http://127.0.0.1:${TEST_PORT}` });
+  assert.notEqual(status, 403, 'un Host și Origin ambele locale nu trebuie respinse de gate-ul Host/Origin');
+});
+
+// --- H7. Servirea fișierelor statice NU trece prin verificarea Host/Origin --
+
+test('GET / (index.html) fără niciun header special -> 200, neafectat de gate-ul Host/Origin (nu începe cu /api/)', async () => {
+  const res = await fetch(`${BASE_URL}/`, { headers: { Origin: 'http://evil.com' } });
+  assert.equal(res.status, 200, 'servirea fișierelor statice nu trebuie blocată de verificarea Host/Origin, chiar cu un Origin extern');
+});
+
+test('GET /style.css fără header Origin -> 200, neafectat de gate-ul Host/Origin', async () => {
+  const res = await fetch(`${BASE_URL}/style.css`); // fără Origin deloc
+  assert.equal(res.status, 200);
+});

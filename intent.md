@@ -37,7 +37,7 @@ Nu construim un subset minimal și gata — obiectivul e să acoperim, în timp,
 - [ ] `viewedAt` — marchezi ca „văzut", stinge indicatorul „?"
 - [x] „New session" + „Reveal in folder" — meniu de acțiuni per agent, portat din `/api/new-session`/`/api/reveal` (bot-crossing), stilizat cu assets Tiny Swords — T-18
 - [ ] `hiddenProjects` — ascunde tot proiectul dintr-o dată, nu doar agenți individuali
-- [ ] Validare Host/Origin pe server (securitate minimă anti-DNS-rebinding/CSRF) — gol real, nu decizie
+- [x] Validare Host/Origin pe server (securitate minimă anti-DNS-rebinding/CSRF) — portat din `isLocalRequest` (bot-crossing) — T-19
 - [ ] Dezambiguizare proiecte cu nume de folder identic (`disambiguateProjects`)
 - [ ] Alte harness-uri (Codex, Cursor, ...) — **exclus explicit de Lucian**, nu e gol, e decizie
 - [ ] Strat de hiperspecializare complet (al nostru, nu din bot-crossing): specializare pe task, nivel din knowledge persistent — **așteaptă până se bifează tot ce e deasupra**

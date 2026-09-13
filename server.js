@@ -11,6 +11,34 @@ const CLAUDE_HOME = path.join(os.homedir(), '.claude');
 const SESSIONS_DIR = path.join(CLAUDE_HOME, 'sessions');
 const PORT = process.env.PORT || 5311;
 
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+
+// Adresele LAN proprii ale mașinii contează și ele ca "locale" — util dacă
+// serverul e vreodată pornit accesibil din rețeaua locală, nu doar loopback.
+for (const addrs of Object.values(os.networkInterfaces())) {
+  for (const a of addrs || []) {
+    if (a && a.family === 'IPv4' && !a.internal && a.address) LOCAL_HOSTS.add(a.address);
+  }
+}
+
+function hostnameOf(value) {
+  if (!value) return '';
+  const raw = String(value).includes('://') ? value : 'http://' + value;
+  try {
+    return new URL(raw).hostname.replace(/^\[|\]$/g, '');
+  } catch (e) {
+    return '';
+  }
+}
+
+function isLocalRequest(req) {
+  if (!LOCAL_HOSTS.has(hostnameOf(req.headers.host))) return false;
+
+  const origin = req.headers.origin;
+  if (origin && origin !== 'null') return LOCAL_HOSTS.has(hostnameOf(origin));
+  return req.method === 'GET' || req.method === 'HEAD';
+}
+
 function isAlive(pid) {
   try {
     process.kill(pid, 0);
@@ -79,6 +107,12 @@ function resolveFolder(folder) {
 }
 
 const server = http.createServer((req, res) => {
+  if (req.url.startsWith('/api/') && !isLocalRequest(req)) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: 'forbidden' }));
+    return;
+  }
+
   if (req.url === '/api/agents') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(readAgents()));
