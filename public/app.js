@@ -611,12 +611,18 @@ function renderDetails() {
     <div><span class="label">pid</span>${agent.pid}</div>
     <div><span class="label">cwd</span>${agent.cwd}</div>
     <div><span class="label">updatedAt</span>${updatedAt}</div>
-    <div><button id="open-btn">Open</button> <button id="hide-btn">Hide</button> <span id="open-error" class="open-error"></span></div>
+    <div><button id="open-btn">Open</button> <button id="new-session-btn">New session</button> <button id="reveal-btn">Reveal in folder</button> <button id="hide-btn">Hide</button> <span id="open-error" class="open-error"></span></div>
   `;
   detailsEl.classList.remove('hidden');
 
   document.getElementById('open-btn').addEventListener('click', () => {
     openAgentSession(agent.sessionId);
+  });
+  document.getElementById('new-session-btn').addEventListener('click', () => {
+    newSessionForAgent(agent.cwd);
+  });
+  document.getElementById('reveal-btn').addEventListener('click', () => {
+    revealAgentFolder(agent.cwd);
   });
   document.getElementById('hide-btn').addEventListener('click', () => {
     hideAgent(agent.sessionId);
@@ -763,6 +769,40 @@ async function openAgentSession(sessionId) {
     }
   } catch (e) {
     errorEl.textContent = 'nu am putut deschide sesiunea';
+  }
+}
+
+async function newSessionForAgent(cwd) {
+  const errorEl = document.getElementById('open-error');
+  errorEl.textContent = '';
+  try {
+    const res = await fetch('/api/new-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder: cwd }),
+    });
+    if (!res.ok) {
+      errorEl.textContent = 'nu am putut porni o sesiune nouă';
+    }
+  } catch (e) {
+    errorEl.textContent = 'nu am putut porni o sesiune nouă';
+  }
+}
+
+async function revealAgentFolder(cwd) {
+  const errorEl = document.getElementById('open-error');
+  errorEl.textContent = '';
+  try {
+    const res = await fetch('/api/reveal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder: cwd }),
+    });
+    if (!res.ok) {
+      errorEl.textContent = 'nu am putut deschide folderul';
+    }
+  } catch (e) {
+    errorEl.textContent = 'nu am putut deschide folderul';
   }
 }
 

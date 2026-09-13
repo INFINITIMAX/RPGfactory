@@ -32,10 +32,15 @@ body {
   top: 10px;
   right: 14px;
   padding: 10px 14px;
-  background: rgba(26, 26, 26, 0.9);
-  border: 1px solid #333;
   max-width: 320px;
   z-index: 10;
+  border-image-source: url('/ui/panel-paper.png');
+  border-image-slice: 33.333% fill;
+  border-image-width: 24px;
+  border-image-repeat: stretch;
+  background: transparent;
+  border-style: solid;
+  color: #222; /* textul trebuie citibil pe hârtie deschisă la culoare, nu pe fundal închis */
 }
 
 .details.hidden {
@@ -47,9 +52,23 @@ body {
 }
 
 .details .label {
-  color: #888;
+  color: #6b5940;
   display: inline-block;
   width: 90px;
+}
+
+.details button {
+  background-image: url('/ui/button-regular.png');
+  background-size: 100% 100%;
+  border: none;
+  color: #fff;
+  padding: 4px 10px;
+  font-family: monospace;
+  cursor: pointer;
+}
+
+.details button:active {
+  background-image: url('/ui/button-pressed.png');
 }
 
 .open-error {

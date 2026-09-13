@@ -35,8 +35,7 @@ Nu construim un subset minimal și gata — obiectivul e să acoperim, în timp,
 - [ ] `sărbătorește` (PR merged) — necesită integrare git/GitHub, complet absentă la noi
 - [ ] Indicator „?" dedicat pentru „are nevoie de tine" (separat de punctul de culoare de status)
 - [ ] `viewedAt` — marchezi ca „văzut", stinge indicatorul „?"
-- [ ] „New session" — deschide sesiune nouă într-un folder
-- [ ] „Reveal in folder" — deschide folderul în Explorer
+- [x] „New session" + „Reveal in folder" — meniu de acțiuni per agent, portat din `/api/new-session`/`/api/reveal` (bot-crossing), stilizat cu assets Tiny Swords — T-18
 - [ ] `hiddenProjects` — ascunde tot proiectul dintr-o dată, nu doar agenți individuali
 - [ ] Validare Host/Origin pe server (securitate minimă anti-DNS-rebinding/CSRF) — gol real, nu decizie
 - [ ] Dezambiguizare proiecte cu nume de folder identic (`disambiguateProjects`)

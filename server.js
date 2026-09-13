@@ -62,11 +62,20 @@ const CONTENT_TYPES = {
   '.png': 'image/png',
 };
 
-function openInClaudeCode(sessionId) {
-  const url = 'claude://resume?session=' + sessionId;
-  const child = spawn('rundll32', ['url.dll,FileProtocolHandler', url], { stdio: 'ignore', detached: true });
+function launchTarget(target) {
+  const child = spawn('rundll32', ['url.dll,FileProtocolHandler', target], { stdio: 'ignore', detached: true });
   child.on('error', () => {}); // opener-ul poate lipsi; nu trebuie să oprească serverul
   child.unref();
+}
+
+function resolveFolder(folder) {
+  if (typeof folder !== 'string' || !path.isAbsolute(folder)) return null;
+  try {
+    const stat = fs.statSync(folder);
+    return stat.isDirectory() ? folder : null;
+  } catch (e) {
+    return null;
+  }
 }
 
 const server = http.createServer((req, res) => {
@@ -97,7 +106,65 @@ const server = http.createServer((req, res) => {
         return;
       }
 
-      openInClaudeCode(data.sessionId);
+      launchTarget('claude://resume?session=' + data.sessionId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    });
+    return;
+  }
+
+  if (req.url === '/api/reveal' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      let data;
+      try {
+        data = JSON.parse(body);
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'invalid JSON' }));
+        return;
+      }
+
+      const folder = resolveFolder(data && data.folder);
+      if (!folder) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'folder invalid sau inexistent' }));
+        return;
+      }
+
+      launchTarget(folder);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    });
+    return;
+  }
+
+  if (req.url === '/api/new-session' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      let data;
+      try {
+        data = JSON.parse(body);
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'invalid JSON' }));
+        return;
+      }
+
+      const folder = resolveFolder(data && data.folder);
+      if (!folder) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'folder invalid sau inexistent' }));
+        return;
+      }
+
+      launchTarget('claude://code/new?' + new URLSearchParams({ folder }).toString());
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
     });

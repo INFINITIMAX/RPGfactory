@@ -9,3 +9,4 @@ assets/
 # sprite-urile exportate sunt servite din public/ (ca să le vadă browserul),
 # dar rămân sub aceeași restricție de licență — nu intră în git nici de aici
 public/sprites/
+public/ui/

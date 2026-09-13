@@ -273,6 +273,22 @@ async function loadApp(options = {}) {
     },
   };
 
+  // T-18: butoanele noi "New session"/"Reveal in folder" din renderDetails(),
+  // la fel de "invizibile" pentru un mock fără parser DOM ca open-btn/hide-btn
+  // de mai sus.
+  let newSessionBtnClickHandler = null;
+  const fakeNewSessionBtn = {
+    addEventListener: (type, handler) => {
+      if (type === 'click') newSessionBtnClickHandler = handler;
+    },
+  };
+  let revealBtnClickHandler = null;
+  const fakeRevealBtn = {
+    addEventListener: (type, handler) => {
+      if (type === 'click') revealBtnClickHandler = handler;
+    },
+  };
+
   // T-07: butoanele de toggle din renderHiddenList() ("Arată ascunși (N)" /
   // "Ascunde lista (N)"). Id-ul lor există doar în una din cele două ramuri
   // (în funcție de `showHidden`), dar app.js face document.getElementById
@@ -354,6 +370,14 @@ async function loadApp(options = {}) {
   let putStateImpl = null; // (body) => ({ ok, status, json }) — dacă null, comportament implicit de succes
   const putCalls = [];
 
+  // T-18: /api/new-session și /api/reveal — implicit succes (200 {ok:true}),
+  // configurabile din teste via setNewSessionImpl/setRevealImpl (analog cu
+  // setPutStateImpl de mai sus), ca să simulăm eșecul de rețea/răspuns non-ok.
+  const newSessionCalls = [];
+  const revealCalls = [];
+  let newSessionImpl = null; // (body) => ({ ok, status, json }) | arunca pentru eroare de rețea
+  let revealImpl = null;
+
   async function mockFetch(url, options) {
     const method = (options && options.method) || 'GET';
     if (url === '/api/agents' && method === 'GET') {
@@ -369,6 +393,18 @@ async function loadApp(options = {}) {
       const saved = { version: 1, archived: body.archived, archivedAt: body.archivedAt, updatedAt: Date.now() };
       stateOnDisk = saved;
       return { ok: true, status: 200, json: async () => saved };
+    }
+    if (url === '/api/new-session' && method === 'POST') {
+      const body = JSON.parse(options.body);
+      newSessionCalls.push(body);
+      if (newSessionImpl) return newSessionImpl(body);
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    if (url === '/api/reveal' && method === 'POST') {
+      const body = JSON.parse(options.body);
+      revealCalls.push(body);
+      if (revealImpl) return revealImpl(body);
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
     }
     throw new Error(`fetch mock: cerere neașteptată ${method} ${url}`);
   }
@@ -387,6 +423,8 @@ async function loadApp(options = {}) {
         if (id === 'open-btn') return fakeOpenBtn;
         if (id === 'open-error') return fakeOpenError;
         if (id === 'hide-btn') return fakeHideBtn;
+        if (id === 'new-session-btn') return fakeNewSessionBtn;
+        if (id === 'reveal-btn') return fakeRevealBtn;
         if (id === 'show-hidden-btn') return fakeShowHiddenBtn;
         if (id === 'hide-hidden-btn') return fakeHideHiddenBtn;
         throw new Error(`element necunoscut: ${id}`);
@@ -680,6 +718,39 @@ async function loadApp(options = {}) {
     },
     getPutCalls() {
       return putCalls;
+    },
+    // --- helpere T-18 (New session / Reveal in folder) ---
+    // newSessionForAgent/revealAgentFolder sunt async, dar listener-ul din
+    // renderDetails() nu întoarce/așteaptă promisiunea lor (`() => {
+    // newSessionForAgent(agent.cwd); }`) — la fel ca restul handler-elor de
+    // click din app.js. Așteptăm explicit un flush de microtask-uri după
+    // apelul sincron al handler-ului, ca fetch-ul mock (rezolvat prin
+    // microtask-uri, fără timere reale) să se fi terminat înainte ca testul
+    // să verifice efectele (getNewSessionCalls()/openErrorText).
+    async clickNewSession() {
+      assert.ok(newSessionBtnClickHandler, 'butonul New session nu a fost randat/înregistrat (renderDetails trebuie apelat cu un agent selectat înainte)');
+      newSessionBtnClickHandler();
+      await new Promise((resolve) => setImmediate(resolve));
+    },
+    async clickReveal() {
+      assert.ok(revealBtnClickHandler, 'butonul Reveal in folder nu a fost randat/înregistrat (renderDetails trebuie apelat cu un agent selectat înainte)');
+      revealBtnClickHandler();
+      await new Promise((resolve) => setImmediate(resolve));
+    },
+    getNewSessionCalls() {
+      return newSessionCalls;
+    },
+    getRevealCalls() {
+      return revealCalls;
+    },
+    setNewSessionImpl(fn) {
+      newSessionImpl = fn;
+    },
+    setRevealImpl(fn) {
+      revealImpl = fn;
+    },
+    get openErrorText() {
+      return fakeOpenError.textContent;
     },
   };
 }
@@ -3145,4 +3216,96 @@ test('T-17 ordinea de desenare: drawRegionLandmarks() (drawImage copac/aur) apar
   assert.notEqual(zoneStrokeIdx, -1, 'presetup: zona ar fi trebuit desenată (strokeRect de contur)');
   assert.ok(treeIdx < zoneStrokeIdx, `copacii ar fi trebuit desenați ÎNAINTE de zone (indice copac=${treeIdx}, indice zonă=${zoneStrokeIdx})`);
   assert.ok(goldIdx < zoneStrokeIdx, `bolovanii de aur ar fi trebuit desenați ÎNAINTE de zone (indice aur=${goldIdx}, indice zonă=${zoneStrokeIdx})`);
+});
+
+// --- 13. T-18 — butoanele "New session" / "Reveal in folder" ----------------
+//
+// Helper comun celor 4 teste de mai jos: selectează un agent (click pe
+// centrul cercului lui), la fel cum fac deja testele #4/#5 de mai sus.
+
+async function loadAppWithSelectedAgent(overrides = {}) {
+  const app = await loadApp();
+  const agent = makeAliveAgent({ cwd: 'C:\\proiecte\\agent-x', ...overrides });
+  await app.setAgents([agent]);
+  settleMovement(app);
+  const pos = agentPixelPosition(app, agent);
+  app.click(pos.x, pos.y);
+  assert.ok(app.fakeDetails.innerHTML.includes(agent.name), 'presetup: click-ul ar fi trebuit să selecteze agentul');
+  return { app, agent };
+}
+
+test('T-18 renderDetails() include butoanele new-session-btn și reveal-btn lângă open-btn/hide-btn', async () => {
+  const { app } = await loadAppWithSelectedAgent();
+  assert.ok(app.fakeDetails.innerHTML.includes('id="new-session-btn"'), 'lipsește new-session-btn din panoul de detalii');
+  assert.ok(app.fakeDetails.innerHTML.includes('id="reveal-btn"'), 'lipsește reveal-btn din panoul de detalii');
+  assert.ok(app.fakeDetails.innerHTML.includes('New session'), 'lipsește eticheta "New session"');
+  assert.ok(app.fakeDetails.innerHTML.includes('Reveal in folder'), 'lipsește eticheta "Reveal in folder"');
+});
+
+test('T-18 click pe new-session-btn cheamă POST /api/new-session cu body {folder: agent.cwd}', async () => {
+  const { app, agent } = await loadAppWithSelectedAgent();
+
+  await app.clickNewSession();
+
+  const calls = app.getNewSessionCalls();
+  assert.equal(calls.length, 1, 'ar fi trebuit exact o chemare către /api/new-session');
+  assert.deepEqual(calls[0], { folder: agent.cwd }, 'body-ul trimis nu conține exact { folder: agent.cwd }');
+});
+
+test('T-18 click pe reveal-btn cheamă POST /api/reveal cu body {folder: agent.cwd}', async () => {
+  const { app, agent } = await loadAppWithSelectedAgent();
+
+  await app.clickReveal();
+
+  const calls = app.getRevealCalls();
+  assert.equal(calls.length, 1, 'ar fi trebuit exact o chemare către /api/reveal');
+  assert.deepEqual(calls[0], { folder: agent.cwd }, 'body-ul trimis nu conține exact { folder: agent.cwd }');
+});
+
+test('T-18 New session: răspuns non-ok (400) -> mesaj de eroare afișat în #open-error', async () => {
+  const { app } = await loadAppWithSelectedAgent();
+  app.setNewSessionImpl(async () => ({ ok: false, status: 400, json: async () => ({ ok: false, error: 'folder invalid sau inexistent' }) }));
+
+  await app.clickNewSession();
+
+  assert.notEqual(app.openErrorText, '', 'mesajul de eroare ar fi trebuit afișat în #open-error după un răspuns non-ok');
+});
+
+test('T-18 New session: eșec de rețea (fetch aruncă) -> mesaj de eroare afișat în #open-error', async () => {
+  const { app } = await loadAppWithSelectedAgent();
+  app.setNewSessionImpl(async () => {
+    throw new Error('network down');
+  });
+
+  await app.clickNewSession();
+
+  assert.notEqual(app.openErrorText, '', 'mesajul de eroare ar fi trebuit afișat în #open-error după o eroare de rețea');
+});
+
+test('T-18 Reveal in folder: răspuns non-ok (400) -> mesaj de eroare afișat în #open-error', async () => {
+  const { app } = await loadAppWithSelectedAgent();
+  app.setRevealImpl(async () => ({ ok: false, status: 400, json: async () => ({ ok: false, error: 'folder invalid sau inexistent' }) }));
+
+  await app.clickReveal();
+
+  assert.notEqual(app.openErrorText, '', 'mesajul de eroare ar fi trebuit afișat în #open-error după un răspuns non-ok');
+});
+
+test('T-18 Reveal in folder: eșec de rețea (fetch aruncă) -> mesaj de eroare afișat în #open-error', async () => {
+  const { app } = await loadAppWithSelectedAgent();
+  app.setRevealImpl(async () => {
+    throw new Error('network down');
+  });
+
+  await app.clickReveal();
+
+  assert.notEqual(app.openErrorText, '', 'mesajul de eroare ar fi trebuit afișat în #open-error după o eroare de rețea');
+});
+
+test('T-18 succes: #open-error rămâne gol (nu afișează eroare) după un click reușit pe New session', async () => {
+  const { app } = await loadAppWithSelectedAgent();
+
+  await app.clickNewSession();
+
+  assert.equal(app.openErrorText, '', 'un click reușit (200 {ok:true}) nu ar trebui să lase niciun mesaj de eroare în #open-error');
 });
