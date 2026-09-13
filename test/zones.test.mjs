@@ -31,6 +31,7 @@ vm.createContext(ctx);
 vm.runInContext(ZONES_SOURCE, ctx);
 
 const cellsNeeded = vm.runInContext('cellsNeeded', ctx);
+const RESERVED_CELL = vm.runInContext('RESERVED_CELL', ctx);
 const { allocateCells, layOut, isConnected } = ctx;
 
 // Aducem rezultatele (Map cu obiecte din realm-ul vm) înapoi ca date simple
@@ -86,14 +87,20 @@ test('proiect nou, singur, fără previous: primește exact cellsNeeded(size) ce
 
 // --- Două proiecte noi ------------------------------------------------------
 
-test('două proiecte noi: primul din listă (cel mai mare) ia celula cea mai apropiată de origine (0,0)', () => {
+test('două proiecte noi: primul din listă (cel mai mare) ia prima celulă liberă din ring(1), NU (0,0) (adaptat la T-16)', () => {
+  // Presupunere veche (pre-T-16): rădăcina primului proiect e (0,0)
+  // (ring(0)). T-16 exclude (0,0) din `free` (turnul/spawn point stă
+  // acolo), deci prima celulă liberă din traversarea `pool` e prima din
+  // ring(1). Ordinea ring(1) e determinată explicit de bucla din `ring()`
+  // (x de la -radius la radius, y=radius-|x|, apoi -y dacă !=0): pentru
+  // radius=1, ordinea e [{-1,0},{0,1},{0,-1},{1,0}] -> prima e {-1,0}.
   const projects = [
     { id: 'big', size: 50 }, // 8 celule
     { id: 'small', size: 5 }, // 1 celulă
   ];
   const result = allocateCells(projects, new Map());
   const big = mapToObj(result).big;
-  assert.deepEqual(big[0], { x: 0, y: 0 });
+  assert.deepEqual(big[0], { x: -1, y: 0 });
 });
 
 test('două proiecte noi: zonele nu se suprapun (nicio celulă {x,y} comună)', () => {
@@ -150,8 +157,8 @@ test('creștere: un proiect cu 1 celulă care acum are nevoie de 3 păstrează r
 // --- Micșorare ----------------------------------------------------------------
 
 test('micșorare: un proiect cu 3 celule care acum are nevoie de 1 păstrează DOAR rădăcina', () => {
-  const root = { x: 0, y: 0 };
-  const oldCells = [root, { x: 1, y: 0 }, { x: 0, y: 1 }];
+  const root = { x: 3, y: 3 }; // orice celulă în afară de (0,0), rezervată de la T-16
+  const oldCells = [root, { x: 4, y: 3 }, { x: 3, y: 4 }];
   const previous = new Map([['a', oldCells]]);
   const projects = [{ id: 'a', size: 5 }]; // cellsNeeded(5) = 1
   const result = layOut(projects, previous);
@@ -163,7 +170,7 @@ test('micșorare: un proiect cu 3 celule care acum are nevoie de 1 păstrează D
 // --- Rădăcina veche ocupată de altcineva ------------------------------------
 
 test('rădăcina veche ocupată de altcineva: proiectul e re-sămânțat ca nou, fără eroare', () => {
-  const sharedRoot = { x: 0, y: 0 };
+  const sharedRoot = { x: 3, y: 3 }; // orice celulă în afară de (0,0), rezervată de la T-16
   // Conflict artificial: două proiecte "previous" cu aceeași rădăcină.
   // 'a' e primul în `projects`, deci o revendică el; 'b' trebuie tratat
   // ca proiect nou.
@@ -268,4 +275,69 @@ test('pool epuizat: mai multe proiecte decât celule în pool -> unele primesc [
       allKeys.add(k);
     }
   }
+});
+
+// --- T-16: celula rezervată (turn/spawn point) ------------------------------
+
+test('T-16: proiect nou, singur, fără previous, NU primește (0,0) ca rădăcină', () => {
+  // Pre-T-16, comportamentul era exact opusul: primul proiect nou lua
+  // mereu (0,0) (ring(0)). T-16 exclude (0,0) din `free`.
+  const projects = [{ id: 'solo', size: 5 }];
+  const result = allocateCells(projects, new Map());
+  const cells = result.get('solo');
+  assert.notDeepEqual(cells[0], RESERVED_CELL);
+});
+
+test('T-16: (0,0) nu apare NICIODATĂ în nicio zonă alocată, cu mai multe proiecte de mărimi diferite', () => {
+  const projects = [
+    { id: 'a', size: 50 },
+    { id: 'b', size: 40 },
+    { id: 'c', size: 20 },
+    { id: 'd', size: 10 },
+    { id: 'e', size: 5 },
+    { id: 'f', size: 5 },
+  ];
+  const result = allocateCells(projects, new Map());
+  for (const [id, cells] of result) {
+    for (const c of cells) {
+      assert.notDeepEqual(c, RESERVED_CELL, `proiectul ${id} nu trebuie să conțină (0,0)`);
+    }
+  }
+});
+
+test('T-16: rădăcină veche (0,0) salvată dinainte de T-16 -> proiectul e re-sămânțat, nu mai păstrează (0,0)', () => {
+  // Simulează starea veche de pe disc: proiectul 'a' avea [{x:0,y:0}] ca
+  // zonă salvată (posibil pentru că era singurul proiect existent la acea
+  // vreme). După T-16, (0,0) nu mai e liberă -> tratat ca "fresh".
+  const previous = new Map([['a', [{ x: 0, y: 0 }]]]);
+  const projects = [{ id: 'a', size: 5 }]; // cellsNeeded(5) = 1
+  let result;
+  assert.doesNotThrow(() => { result = layOut(projects, previous); });
+  const cells = result.get('a');
+  assert.equal(cells.length, 1, 'proiectul tot primește o celulă, doar nu pe cea veche');
+  assert.notDeepEqual(cells[0], RESERVED_CELL);
+});
+
+test('T-16: isConnected - celula rezervată (0,0) conectează două grupuri ca "stepping stone"', () => {
+  // Două grupuri (proiecte diferite) ating (0,0) din direcții opuse, fără
+  // să fie adiacente direct între ele. Fără tratarea (0,0) ca trecător,
+  // acestea ar fi considerate două componente separate (fals-negativ).
+  const out = new Map([
+    ['a', [{ x: -1, y: 0 }]],
+    ['b', [{ x: 1, y: 0 }]],
+  ]);
+  assert.equal(isConnected(out), true);
+});
+
+test('T-16: isConnected nu numără celula rezervată ca membru (fără seen.delete ar da fals-negativ)', () => {
+  // Două celule ale ACELUIAȘI proiect, adiacente direct între ele (nu au
+  // nevoie de (0,0) pentru a fi conectate). Flood-fill-ul tot ajunge la
+  // (0,0) (vecin al lui {1,0}) și îl adaugă în `seen`. Dacă implementarea
+  // ar omite `seen.delete(reservedKey)`, `seen.size` ar fi 3 față de
+  // `cells.size` 2 -> fals-negativ (isConnected ar întoarce greșit false,
+  // deși cele două celule sunt clar conectate direct).
+  const out = new Map([
+    ['a', [{ x: 1, y: 0 }, { x: 2, y: 0 }]],
+  ]);
+  assert.equal(isConnected(out), true);
 });

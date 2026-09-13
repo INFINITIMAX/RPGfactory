@@ -2024,57 +2024,111 @@ test('T-11 plecare critică: agent arhivat imediat după apariție (încă spawn
 // Acest test documentează comportamentul ACTUAL (eșuează dacă presupunerea
 // de mai sus e corectă) — planner-ul decide dacă e un bug de reparat sau o
 // simplificare acceptată.
+//
+// T-16b — redesign (docs/handoff/T-16b-tester.md): (0,0) e rezervat acum
+// pentru TOATE proiectele (T-16), deci un singur proiect-"ancoră" de 2 agenți
+// pe aceeași celulă NU mai garantează plecare rapidă pentru ambii: jitter-ul
+// (ZONE_JITTER_RADIUS=12) e aplicat pe un unghi ABSOLUT (2*pi*i/n), nu radial
+// față de origine — într-un grup de 2, un singur agent se apropie de origine
+// (80-12=68px, 10 tick-uri), celălalt se depărtează (80+12=92px, 14
+// tick-uri) — exact ce a stricat testul dinaintea acestei predări (ancora
+// "de rezervă" avea nevoie de 14 tick-uri, mai mult decât cele 11 necesare
+// ca scale-ul să ajungă la 0, deci rămânea desenată alături de agentul
+// testat: arcCalls.length === 2, nu 1).
+//
+// Soluție aleasă (alternativă la "ancoră mai mare/mai multe inele" sugerată
+// în brief, motivată aici): 4 proiecte-"filler" SEPARATE, fiecare cu un
+// singur agent (fără grupare -> fără jitter) — ocupă exact cele 4 celule
+// din ring(1) (singurele rămase după excluderea (0,0) de T-16), la distanță
+// EXACTĂ, calculabilă, de 80 fiecare. Asta împinge proiectul TESTAT în
+// ring(2) (prima celulă liberă acolo, distanță 160) — dublu față de fillere,
+// deci cu o marjă de tick-uri sănătoasă (nu doar 1 tick, cum ar fi cazul cu
+// un singur proiect fără niciun filler). Fillerele sunt inserate ÎNAINTE de
+// agentul testat în array-ul dat lui setAgents(); toate au size=1 (egal cu
+// al agentului testat) — la egalitate, ordinea e păstrată de
+// `Array.prototype.sort` (stabil, garantat de spec din ES2019, folosit deja
+// de app.js la sortarea proiectelor) — deci fillerele tot ocupă ring(1)
+// înaintea agentului testat, fără să fie nevoie de dimensiuni artificiale.
 test('T-11 (bug suspectat) plecare: intrarea NU ar trebui să dispară doar pentru că scale-ul a ajuns la 0, dacă poziția e încă departe de SPAWN_POINT', async () => {
   const app = await loadApp();
   const agent = makeAliveAgent({ cwd: '/proj/t11-far-leave' });
-  // Corecție planner (T-12): vezi comentariul din testul "mișcare monotonă" —
-  // proiect-ancoră mai mare ocupă originea (=SPAWN_POINT), garantând că
-  // ținta agentului testat e efectiv departe.
-  const anchor1 = makeAliveAgent({ sessionId: 'anchor-1', cwd: '/proj/anchor', name: 'anchor1' });
-  const anchor2 = makeAliveAgent({ sessionId: 'anchor-2', cwd: '/proj/anchor', name: 'anchor2' });
-  await app.setAgents([anchor1, anchor2, agent]);
+  const fillers = [0, 1, 2, 3].map((i) =>
+    makeAliveAgent({ sessionId: `filler-${i}`, cwd: `/proj/t11-far-leave-filler-${i}`, name: `filler${i}` })
+  );
+  const liveAgents = [...fillers, agent];
+  await app.setAgents(liveAgents);
   app.triggerImageLoad();
   app.triggerRunImageLoad();
 
-  settleMovement(app); // ajunge at-site, la ținta din zonă
-  const target = agentPixelPosition(app, agent);
-  const distFromSpawn = Math.hypot(target.x - TEST_SPAWN_POINT.x, target.y - TEST_SPAWN_POINT.y);
+  settleMovement(app); // toți (fillere + agent) ajung at-site, la ținta din propria zonă
+
+  // Poziții de LUME calculate cu funcția de producție folosită și de
+  // updateAgentMovement() — nu ghicite. SPAWN_POINT e originea lumii (0,0),
+  // deci distanța față de el e direct hypot(x,y) (fără conversia la ecran,
+  // care ar amesteca world-space cu WALK_SPEED, definit tot în world-space).
+  const worldPositions = app.sandbox.computeAgentPositions(liveAgents);
+  const targetWorld = worldPositions.get(agent.sessionId);
+  assert.ok(targetWorld, 'presetup: agentul testat ar fi trebuit să primească o poziție de zonă');
+  const distFromSpawn = Math.hypot(targetWorld.x, targetWorld.y);
   assert.ok(
     distFromSpawn > ARRIVE_RADIUS,
     'presetup: ținta trebuie să fie suficient de departe de SPAWN_POINT ca testul să aibă sens'
   );
 
-  await app.setAgents([]); // arhivat/mort -> intră în leaving la următorul tick
+  const fillerDistances = fillers.map((f) => {
+    const pos = worldPositions.get(f.sessionId);
+    assert.ok(pos, `presetup: filler-ul ${f.sessionId} ar fi trebuit să primească o poziție de zonă`);
+    return Math.hypot(pos.x, pos.y);
+  });
+  const maxFillerDist = Math.max(...fillerDistances);
+  assert.ok(
+    maxFillerDist < distFromSpawn,
+    'presetup: toate proiectele-filler trebuie să fie strict mai aproape de SPAWN_POINT decât proiectul testat (altfel n-au cum să fi "ocupat" ring(1) în locul lui)'
+  );
+
+  await app.setAgents([]); // toți (fillere + agent) devin 'leaving', din poziția lor curentă (at-site)
 
   const ticksForScaleZero = Math.ceil(1 / (MOVEMENT_DT * LEAVING_SHRINK_RATE)) + 1;
   const ticksNeededToArrive = Math.ceil(distFromSpawn / (WALK_SPEED * MOVEMENT_DT));
+  const ticksForFillersToArrive = Math.ceil(maxFillerDist / (WALK_SPEED * MOVEMENT_DT));
+  const waitTicks = Math.max(ticksForScaleZero, ticksForFillersToArrive);
+
   assert.ok(
     ticksForScaleZero < ticksNeededToArrive,
-    'presetup: scale-ul trebuie să ajungă la 0 mult înainte ca agentul să fi parcurs drumul înapoi la SPAWN_POINT'
+    'presetup: scale-ul trebuie să ajungă la 0 mult înainte ca agentul testat să fi parcurs drumul înapoi la SPAWN_POINT'
+  );
+  assert.ok(
+    waitTicks < ticksNeededToArrive,
+    'presetup: TOATE proiectele-filler trebuie să termine complet plecarea (ajunse ȘI scale=0) cu mult înainte ca agentul testat să ajungă înapoi la SPAWN_POINT — altfel testul nu poate izola comportamentul agentului testat de al fillerelor'
   );
 
-  for (let i = 0; i < ticksForScaleZero; i++) app.advanceMovementTick();
+  for (let i = 0; i < waitTicks; i++) app.advanceMovementTick();
 
-  // Corecție planner: draw() sare intenționat desenarea SPRITE-ului la
-  // scale===0 (nimic vizibil oricum, cod din app.js) — asta e o alegere
-  // rezonabilă a coder-ului, nu bug-ul suspectat. `agentMovement` e `const`
-  // la nivel de script, deci nu devine proprietate globală în sandbox (la
-  // fel ca `agents`/`selectedSessionId` — vezi comentariul din capul acestui
-  // fișier) — nu-l putem inspecta direct. În schimb, `arc`/`fillText` din
-  // draw() NU sunt condiționate de scale — dacă intrarea tot există în
-  // agentMovement, tot apar. Le folosim ca semnal observabil indirect al
-  // invariantului care chiar contează: intrarea NU a fost ȘTEARSĂ prematur
-  // doar pentru că un singur prag (scale) a fost atins — dacă ar fi fost
-  // ștearsă, agentul ar "dispărea" definitiv la mijlocul ecranului, în loc
-  // să continue drumul (invizibil) până la SPAWN_POINT.
+  // Aserția centrală (bug suspectat, T-11), verificată END-TO-END (nu doar
+  // din calcul): la acest tick, toate fillerele au atins deja AMBELE praguri
+  // (arrived && scale<=0, waitTicks >= ticksForFillersToArrive) — dacă tot
+  // ar mai apărea vreunul, arc/fillText de mai jos n-ar mai izola
+  // comportamentul agentului testat. Agentul testat, în schimb, are deja
+  // scale===0 (waitTicks >= ticksForScaleZero), dar NU a ajuns încă la
+  // SPAWN_POINT (waitTicks < ticksNeededToArrive, verificat mai sus) — dacă
+  // regula din updateAgentMovement() ar fi SAU (nu ȘI), intrarea lui ar fi
+  // fost deja ștearsă la acest tick, la fel ca a fillerelor, și
+  // `arcCalls.length` ar fi 0, nu 1.
   app.arcCalls.length = 0;
   app.fillTextCalls.length = 0;
   app.sandbox.draw();
-
-  assert.equal(app.arcCalls.length, 1, 'indicatorul de status tot ar trebui desenat — intrarea nu ar trebui ștearsă doar pentru scale===0');
+  assert.equal(
+    app.arcCalls.length,
+    1,
+    'indicatorul de status tot ar trebui desenat — intrarea nu ar trebui ștearsă doar pentru scale===0 (dacă e 0, toate fillerele au dispărut deja corect, dar și agentul testat; dacă e >1, vreun filler n-a dispărut încă — verifică presetup-ul de mai sus)'
+  );
   assert.ok(
     app.fillTextCalls.some((c) => c.text === agent.name),
-    'numele agentului tot ar trebui desenat — dacă acest test eșuează, codul șterge intrarea la primul prag atins (SAU), nu la ambele (ȘI), cum cere brief-ul'
+    'numele agentului testat tot ar trebui desenat — dacă acest test eșuează, codul șterge intrarea la primul prag atins (SAU), nu la ambele (ȘI), cum cere brief-ul'
+  );
+  assert.ok(
+    fillers.every((f) => !app.fillTextCalls.some((c) => c.text === f.name)),
+    'numele niciunui filler nu ar mai trebui desenat — ar fi trebuit să dispară complet din agentMovement până la acest tick'
   );
 });
 

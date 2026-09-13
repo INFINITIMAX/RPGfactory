@@ -11,6 +11,7 @@ const MAX_CELLS = 9; // plafon de celule per proiect
 
 const key = (x, y) => `${x},${y}`;
 const ORIGIN = { x: 0, y: 0 };
+const RESERVED_CELL = { x: 0, y: 0 }; // turnul/spawn point-ul (T-15) stă exact aici — niciun proiect nu poate primi această celulă
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]]; // 4 direcții, în loc de cele 6 hexagonale
 
 function manhattanDistance(a, b) {
@@ -57,11 +58,17 @@ function growBlob(cells, want, free) {
 }
 
 // isConnected — flood-fill pe 4 direcții peste toate celulele ocupate din
-// toate proiectele, fără nicio celulă rezervată de tranzit.
+// toate proiectele, cu celula rezervată a turnului tratată ca "stepping
+// stone" trecător (nu un membru), ca să nu rupă artificial conectivitatea
+// coloniilor care o înconjoară din ambele părți.
 function isConnected(out) {
   const cells = new Map();
   for (const [, list] of out) for (const c of list) cells.set(key(c.x, c.y), c);
   if (cells.size < 2) return true;
+
+  const reservedKey = key(RESERVED_CELL.x, RESERVED_CELL.y);
+  const passable = new Set([...cells.keys(), reservedKey]);
+
   const [startKey] = cells.keys();
   const seen = new Set([startKey]);
   const queue = [cells.get(startKey)];
@@ -70,11 +77,12 @@ function isConnected(out) {
     for (const [dx, dy] of DIRS) {
       const n = { x: c.x + dx, y: c.y + dy };
       const k = key(n.x, n.y);
-      if (!cells.has(k) || seen.has(k)) continue;
+      if (!passable.has(k) || seen.has(k)) continue;
       seen.add(k);
       queue.push(n);
     }
   }
+  seen.delete(reservedKey);
   return seen.size === cells.size;
 }
 
@@ -102,6 +110,7 @@ function layOut(projects, previous) {
     }
     r++;
   }
+  free.delete(key(RESERVED_CELL.x, RESERVED_CELL.y));
 
   const out = new Map();
   const kept = [];

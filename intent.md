@@ -29,7 +29,7 @@ Nu construim un subset minimal și gata — obiectivul e să acoperim, în timp,
 - [x] Teren concret (fundal de apă + iarbă din tilemap real) — T-13
 - [x] Lume vie: decorații pe celule (tufe animate, stânci statice) + nori în mișcare pe fundal — T-14 + T-14b (fix suprapunere decorație/agent)
 - [x] Simplificare fundal: doar iarbă peste tot (apă/nori eliminate, independent de zone/agenți), zoom implicit 2x, turn central (Tiny Swords) la spawn point — T-15
-- [ ] **Bug cunoscut, în lucru**: turnul/spawn point-ul coincide cu prima celulă alocată de `zones.js` (mereu (0,0)) — task A, următorul
+- [x] Fix: celula `(0,0)` (turn/spawn point) rezervată, exclusă din alocarea `zones.js` — portat din `SHIP_CELL` (bot-crossing) — T-16 + T-16b (fix ripple teste ancoră)
 - [ ] `blocat` — verificat 13-09-2026: **nici bot-crossing nu rezolvă asta pentru CLI** (doar pentru bookkeeping-ul aplicației desktop, la care noi n-avem acces). Ar necesita heuristic propriu (scanare `is_error` în coada transcriptului) — decizie amânată explicit de Lucian, nu e o simplă portare
 - [ ] `sărbătorește` (PR merged) — necesită integrare git/GitHub, complet absentă la noi
 - [ ] Indicator „?" dedicat pentru „are nevoie de tine" (separat de punctul de culoare de status)
