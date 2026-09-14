@@ -1,316 +1,354 @@
-// Teste pentru GET/PUT /api/state din state.js + server.js (T-06).
+// Teste pentru GET/PUT /api/state (server.js + state.js), migrate la noul
+// contract RF-01.
 //
-// Pornim serverul REAL pe un port dedicat (5392, diferit de 5311 și de 5391
-// folosit deja de test/api-open.test.mjs), la fel ca în test/api-open.test.mjs:
-// interceptăm temporar `http.createServer` doar cât durează `require('../server.js')`
-// ca să obținem un handle către instanța reală, apoi restaurăm imediat originalul.
+// ÎNAINTE (T-06): acest fișier pornea serverul REAL prin monkey-patch pe
+// `http.createServer`, pe portul fix 5392, și ștergea/restaura
+// `data/state.json` REAL din proiect. Amândouă sunt interzise explicit de
+// brief-ul RF-01 (periculos pentru datele reale ale utilizatorului).
 //
-// Izolarea lui data/state.json:
-// state.js calculează STATE_FILE cu o cale FIXĂ (`path.join(__dirname, 'data',
-// 'state.json')`), fără nicio variabilă de mediu sau parametru de configurare
-// a folderului de date — verificat prin citirea codului, nu presupus. Conform
-// brief-ului, nu modificăm state.js ca să adăugăm o asemenea opțiune. În loc
-// de asta: în `before`, facem backup în memorie al fișierului real (dacă
-// există) și îl ștergem, ca testele să pornească de la stare goală garantată;
-// în `after`, ștergem orice a scris suita de teste și restaurăm exact bytes-
-// cu-bytes backup-ul original (sau lăsăm fișierul șters dacă nu exista
-// inițial). Testele din acest fișier rulează secvențial (comportamentul
-// implicit al node:test într-un singur fișier, fără `concurrency: true`) și
-// depind unele de starea lăsată de precedentele (updatedAt-ul scrierii #1
-// devine baseUpdatedAt pentru scrierea #2) — ordinea din fișier contează.
+// ACUM: `startServer({ port: 0, dataDir: <temp> })` — port efemer, director
+// de date temporar, curățat la final. `data/` real din proiect nu e atins
+// niciodată de acest fișier.
+//
+// Testele directe pe `state.js` (fără HTTP) pentru §3.1/§3.2 din brief sunt
+// în test/state-store.test.mjs, ca să nu aglomerăm acest fișier.
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const { startServer } = require('../server.js');
 
-const TEST_PORT = 5392; // dedicat acestui fișier de teste, diferit de 5311 și 5391
-const BASE_URL = `http://localhost:${TEST_PORT}`;
-
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const STATE_FILE = path.join(DATA_DIR, 'state.json');
-
-let capturedServer = null;
-let backupExisted = false;
-let backupBuffer = null;
+let srv;
+let dataDir;
 
 before(async () => {
-  // backup + curățare, ca să pornim de la stare garantat goală
-  try {
-    backupBuffer = fs.readFileSync(STATE_FILE);
-    backupExisted = true;
-  } catch (e) {
-    backupExisted = false;
-  }
-  try {
-    fs.rmSync(STATE_FILE);
-  } catch (e) {
-    // fișierul nu exista - ok
-  }
-
-  const originalCreateServer = http.createServer.bind(http);
-  http.createServer = (...args) => {
-    capturedServer = originalCreateServer(...args);
-    return capturedServer;
-  };
-
-  process.env.PORT = String(TEST_PORT);
-
-  const readyPromise = new Promise((resolve, reject) => {
-    require('../server.js');
-    assert.ok(capturedServer, 'server.js ar fi trebuit să apeleze http.createServer');
-    capturedServer.once('listening', resolve);
-    capturedServer.once('error', reject);
-  });
-
-  http.createServer = originalCreateServer; // restaurăm imediat
-
-  await readyPromise;
-});
-
-after(() => {
-  return new Promise((resolve) => {
-    const restore = () => {
-      try {
-        fs.rmSync(STATE_FILE);
-      } catch (e) {
-        // ok, poate n-a fost scris nimic
-      }
-      if (backupExisted) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-        fs.writeFileSync(STATE_FILE, backupBuffer);
-      }
-      resolve();
-    };
-    if (capturedServer) capturedServer.close(restore);
-    else restore();
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf01-state-http-'));
+  srv = await startServer({
+    port: 0,
+    host: '127.0.0.1',
+    dataDir,
+    sessionsDir: fs.mkdtempSync(path.join(os.tmpdir(), 'rf01-state-sessions-')),
+    opener: () => {},
+    isAlive: () => true,
+    now: () => 1700000000000, // ceas înghețat — necesar pentru proba D7
   });
 });
+
+after(async () => {
+  await srv.close();
+  fs.rmSync(dataDir, { recursive: true, force: true });
+});
+
+function baseUrl() {
+  return `http://127.0.0.1:${srv.port}`;
+}
 
 async function getState() {
-  const res = await fetch(`${BASE_URL}/api/state`);
+  const res = await fetch(`${baseUrl()}/api/state`);
   const json = await res.json();
   return { status: res.status, json };
 }
 
 async function putState(body) {
   const isRaw = typeof body === 'string';
-  const res = await fetch(`${BASE_URL}/api/state`, {
+  const res = await fetch(`${baseUrl()}/api/state`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Origin: BASE_URL },
+    headers: { 'Content-Type': 'application/json', Origin: baseUrl() },
     body: isRaw ? body : JSON.stringify(body),
   });
   let json = null;
   try {
     json = await res.json();
   } catch (e) {
-    // ok pentru cazurile de eroare testate mai jos
+    // ok pentru cazurile de eroare de mai jos
   }
   return { status: res.status, json };
 }
 
+function stateFilePath() {
+  return path.join(dataDir, 'state.json');
+}
+
 function readDiskStateRaw() {
-  return fs.readFileSync(STATE_FILE, 'utf8');
+  return fs.readFileSync(stateFilePath(), 'utf8');
 }
 
-function listTmpFilesOnDisk() {
-  let files = [];
-  try {
-    files = fs.readdirSync(DATA_DIR);
-  } catch (e) {
-    return [];
-  }
-  return files.filter((f) => f.endsWith('.tmp'));
-}
+// =============================================================================
+// D5 — baseUpdatedAt=0 nu mai ocolește CAS pentru o stare EXISTENTĂ
+// =============================================================================
 
-// --- 1. GET pe stare inexistentă -----------------------------------------------
-
-test('GET /api/state pe stare inexistentă -> 200 stare goală implicită', async () => {
+test('GET /api/state pe stare inexistentă -> 200, stare goală implicită', async () => {
   const { status, json } = await getState();
   assert.equal(status, 200);
   assert.deepEqual(json, { version: 1, archived: [], archivedAt: {}, plots: {}, updatedAt: 0 });
 });
 
-// --- 2. Prima scriere, fără baseUpdatedAt --------------------------------------
-
-let firstUpdatedAt = null;
-
-test('PUT /api/state fără baseUpdatedAt -> 200, scrie necondiționat, updatedAt > 0', async () => {
-  const { status, json } = await putState({ archived: ['s1'], archivedAt: { s1: 1234567890 } });
+test('D5a: stare inexistentă (updatedAt=0) + baseUpdatedAt:0 -> 200 (prima scriere legitimă)', async () => {
+  const { status, json } = await putState({ baseUpdatedAt: 0, archived: ['prima'], archivedAt: {} });
   assert.equal(status, 200);
-  assert.deepEqual(json.archived, ['s1']);
-  assert.deepEqual(json.archivedAt, { s1: 1234567890 });
-  assert.ok(json.updatedAt > 0, 'updatedAt ar trebui ștampilat de server, nu 0');
-  firstUpdatedAt = json.updatedAt;
+  assert.deepEqual(json.archived, ['prima']);
+  assert.ok(json.updatedAt > 0);
 });
 
-// --- 3. Fișierul de pe disc e JSON valid, indentat, cu exact câmpurile așteptate --
+test('D5b: stare EXISTENTĂ cu revizie >0 + baseUpdatedAt:0 -> 409, disk NESCHIMBAT', async () => {
+  // continuăm de la starea scrisă de testul anterior (updatedAt > 0 acum)
+  const before1 = await getState();
+  assert.ok(before1.json.updatedAt > 0, 'testul anterior ar fi trebuit să lase o revizie > 0');
 
-test('fișierul scris pe disc e JSON valid, indentat cu 2 spații, cu exact câmpurile version/archived/archivedAt/plots/updatedAt', () => {
-  const raw = readDiskStateRaw();
-  const parsed = JSON.parse(raw); // aruncă dacă nu e JSON valid
-  // T-09 a adăugat `plots` (layout de zone) la schema de stare.
-  assert.deepEqual(Object.keys(parsed).sort(), ['archived', 'archivedAt', 'plots', 'updatedAt', 'version'].sort());
-  assert.equal(parsed.version, 1);
-  assert.deepEqual(parsed.archived, ['s1']);
-  assert.deepEqual(parsed.archivedAt, { s1: 1234567890 });
-  assert.equal(parsed.updatedAt, firstUpdatedAt);
-  // verificare indentare reală (nu doar conținut) - JSON.stringify(state, null, 2)
-  assert.ok(raw.startsWith('{\n  "version": 1,'), `fișierul nu pare indentat cu 2 spații: ${raw.slice(0, 40)}`);
-});
-
-// --- 4. A doua scriere, cu baseUpdatedAt corect --------------------------------
-
-let secondUpdatedAt = null;
-
-test('PUT /api/state cu baseUpdatedAt corect (valoarea din scrierea anterioară) -> 200, se aplică', async () => {
-  const { status, json } = await putState({
-    archived: ['s1', 's2'],
-    archivedAt: { s1: 1234567890, s2: 1111111111 },
-    baseUpdatedAt: firstUpdatedAt,
-  });
-  assert.equal(status, 200);
-  assert.deepEqual(json.archived, ['s1', 's2']);
-  // `>=`, nu `>` strict: două scrieri succesive pot cădea teoretic în aceeași
-  // milisecundă (Date.now()); ce contează cu adevărat e că nu regresează.
-  assert.ok(json.updatedAt >= firstUpdatedAt, 'updatedAt nu ar trebui să regreseze între scrieri');
-  secondUpdatedAt = json.updatedAt;
-});
-
-// --- 5. baseUpdatedAt greșit -> 409, disk neschimbat ----------------------------
-
-test('PUT /api/state cu baseUpdatedAt greșit -> 409, body = starea curentă de pe disc, disk-ul rămâne neschimbat', async () => {
   const beforeRaw = readDiskStateRaw();
-
   const { status, json } = await putState({
-    archived: ['payload-respins-nu-trebuie-sa-ajunga-pe-disc'],
+    baseUpdatedAt: 0, // pretinde că nu știe de nicio scriere anterioară
+    archived: ['am-sters-tot'],
     archivedAt: {},
-    baseUpdatedAt: 1, // valoare veche/inventată, sigur diferită de secondUpdatedAt
   });
 
-  assert.equal(status, 409);
-  assert.deepEqual(json.archived, ['s1', 's2'], 'corpul răspunsului 409 trebuie să fie starea curentă de pe disc, nu payload-ul respins');
-  assert.equal(json.updatedAt, secondUpdatedAt);
+  assert.equal(status, 409, 'D5 — baseUpdatedAt:0 pe o stare existentă NU mai trebuie tratat ca "sări peste verificare"');
+  assert.deepEqual(json.archived, before1.json.archived, 'body-ul 409 trebuie să fie starea curentă, neschimbată');
 
   const afterRaw = readDiskStateRaw();
-  assert.equal(afterRaw, beforeRaw, 'fișierul de pe disc nu trebuie modificat de o scriere respinsă cu 409');
-  assert.ok(
-    !afterRaw.includes('payload-respins-nu-trebuie-sa-ajunga-pe-disc'),
-    'payload-ul respins nu trebuie să ajungă niciodată pe disc'
-  );
+  assert.equal(afterRaw, beforeRaw, 'un 409 nu trebuie să modifice fișierul de pe disc');
+  assert.ok(!afterRaw.includes('am-sters-tot'), 'payload-ul respins nu trebuie să ajungă niciodată pe disc');
 });
 
-// --- 6. baseUpdatedAt = 0 tratat ca "lipsă" (scriere necondiționată) ------------
-// Comportament observabil al implementării curente (`if (base && ...)`, unde
-// `base` fiind 0 e falsy) - documentat explicit ca să nu se schimbe pe tăcute.
+// =============================================================================
+// Contract §2.4: baseUpdatedAt e acum OBLIGATORIU (nu mai există "fără
+// baseUpdatedAt -> scrie necondiționat", cum era pe cod vechi) — validarea
+// D6 respinge orice câmp în afara celor cunoscute / de tip greșit.
+// =============================================================================
 
-test('PUT /api/state cu baseUpdatedAt=0 explicit -> tratat ca lipsă, scrie necondiționat (nu 409)', async () => {
-  const { status, json } = await putState({
-    archived: ['s1', 's2', 's3'],
-    archivedAt: { s1: 1234567890, s2: 1111111111, s3: 42 },
-    baseUpdatedAt: 0,
-  });
-  assert.equal(status, 200);
-  assert.deepEqual(json.archived, ['s1', 's2', 's3']);
-});
-
-// --- 7. Fără resturi *.tmp pe disc după scrieri reușite -------------------------
-
-test('nu rămân fișiere *.tmp pe disc după scrierile reușite de mai sus', () => {
-  const tmpFiles = listTmpFilesOnDisk();
-  assert.deepEqual(tmpFiles, [], `fișiere tmp rămase pe disc: ${tmpFiles.join(', ')}`);
-});
-
-// --- 8. JSON invalid la PUT -----------------------------------------------------
-
-test('PUT /api/state cu body care nu e JSON valid -> 400, disk neschimbat', async () => {
-  const beforeRaw = readDiskStateRaw();
-  const { status, json } = await putState('nu e deloc JSON valid {{{');
-  assert.equal(status, 400);
-  assert.deepEqual(json, { ok: false, error: 'invalid JSON' });
-  assert.equal(readDiskStateRaw(), beforeRaw, 'un body invalid nu trebuie să modifice fișierul de pe disc');
-});
-
-// --- 9. PUT cu `plots` populat -> GET ulterior îl întoarce identic (T-09) -------
-
-test('PUT /api/state cu plots populat -> se salvează corect, GET ulterior îl întoarce identic', async () => {
+test('PUT /api/state FĂRĂ baseUpdatedAt -> 400 (respins de validare, nu mai e "scriere necondiționată")', async () => {
   const { json: current } = await getState();
-  const plots = { 'proiect-a': [{ x: 0, y: 0 }, { x: 1, y: 0 }], 'proiect-b': [{ x: 2, y: 3 }] };
+  const beforeRaw = readDiskStateRaw();
+  const { status } = await putState({ archived: ['x'] });
+  assert.equal(status, 400);
+  assert.equal(readDiskStateRaw(), beforeRaw, 'un PUT respins la validare nu trebuie să atingă discul');
+});
 
-  const putRes = await putState({
-    archived: current.archived,
-    archivedAt: current.archivedAt,
-    plots,
-    baseUpdatedAt: current.updatedAt,
-  });
-  assert.equal(putRes.status, 200);
-  assert.deepEqual(putRes.json.plots, plots, 'răspunsul PUT trebuie să întoarcă plots-ul trimis');
+// =============================================================================
+// D6 — schema e validată explicit înainte de orice scriere
+// =============================================================================
 
-  const { status, json: after } = await getState();
+test('D6: PUT cu `archived` ca obiect (nu array) -> 400, disk neschimbat', async () => {
+  const { json: current } = await getState();
+  const beforeRaw = readDiskStateRaw();
+  const { status } = await putState({ baseUpdatedAt: current.updatedAt, archived: { not: 'an array' } });
+  assert.equal(status, 400);
+  assert.equal(readDiskStateRaw(), beforeRaw);
+});
+
+test('D6: PUT cu `archivedAt` ca string (nu obiect) -> 400, disk neschimbat', async () => {
+  const { json: current } = await getState();
+  const beforeRaw = readDiskStateRaw();
+  const { status } = await putState({ baseUpdatedAt: current.updatedAt, archivedAt: 'nu e obiect' });
+  assert.equal(status, 400);
+  assert.equal(readDiskStateRaw(), beforeRaw);
+});
+
+test('D6: PUT cu câmp necunoscut -> 400, disk neschimbat', async () => {
+  const { json: current } = await getState();
+  const beforeRaw = readDiskStateRaw();
+  const { status } = await putState({ baseUpdatedAt: current.updatedAt, campNecunoscut: 123 });
+  assert.equal(status, 400);
+  assert.equal(readDiskStateRaw(), beforeRaw);
+});
+
+test('D6: PUT cu version:2 -> 400, disk neschimbat', async () => {
+  const { json: current } = await getState();
+  const beforeRaw = readDiskStateRaw();
+  const { status } = await putState({ baseUpdatedAt: current.updatedAt, version: 2 });
+  assert.equal(status, 400);
+  assert.equal(readDiskStateRaw(), beforeRaw);
+});
+
+test('D6: PUT cu version:1 (corect) -> nu e respins la acest pas de validare', async () => {
+  const { json: current } = await getState();
+  const { status } = await putState({ baseUpdatedAt: current.updatedAt, version: 1, archived: current.archived, archivedAt: current.archivedAt });
   assert.equal(status, 200);
-  assert.deepEqual(after.plots, plots, 'GET ulterior trebuie să întoarcă exact plots-ul salvat anterior');
 });
 
-// --- 10. Defaults la citirea unei stări vechi, fără `plots` pe disc (T-09b) -----
-// Simulăm un fișier scris înainte de introducerea câmpului `plots`: JSON valid,
-// dar fără cheia `plots`. `GET /api/state` trebuie să completeze `plots: {}`,
-// nu să-l lase lipsă/undefined, și să păstreze `archived`/`archivedAt` neatinse.
-
-test('GET /api/state pe un fișier vechi fără `plots` pe disc -> completează plots:{} și păstrează archived/archivedAt', async () => {
-  const backup = readDiskStateRaw();
-  try {
-    const oldShape = {
-      version: 1,
-      archived: ['legacy-agent'],
-      archivedAt: { 'legacy-agent': 1700000000 },
-      updatedAt: 555,
-      // fără `plots` - simulează un state.json scris înainte de T-09
-    };
-    fs.writeFileSync(STATE_FILE, JSON.stringify(oldShape, null, 2));
-
-    const { status, json } = await getState();
-    assert.equal(status, 200);
-    assert.deepEqual(json.plots, {}, 'plots trebuie completat cu {} când lipsește din fișierul de pe disc, nu undefined');
-    assert.deepEqual(json.archived, ['legacy-agent'], 'archived trebuie păstrat neschimbat din fișierul vechi');
-    assert.deepEqual(
-      json.archivedAt,
-      { 'legacy-agent': 1700000000 },
-      'archivedAt trebuie păstrat neschimbat din fișierul vechi'
-    );
-    assert.equal(json.updatedAt, 555, 'updatedAt existent în fișierul vechi nu trebuie suprascris');
-  } finally {
-    fs.writeFileSync(STATE_FILE, backup);
-  }
+test('D6: __proto__ ca cheie DIRECTĂ în archivedAt -> 400, disk neschimbat', async () => {
+  const { json: current } = await getState();
+  const beforeRaw = readDiskStateRaw();
+  // trimitem body-ul brut, ca "__proto__" să ajungă ca proprietate de date
+  // reală (JSON.parse pe server nu declanșează comportamentul special de
+  // prototip — doar literalul de obiect din JS l-ar declanșa).
+  const raw = `{"baseUpdatedAt":${current.updatedAt},"archivedAt":{"__proto__":{"x":1}}}`;
+  const { status } = await putState(raw);
+  assert.equal(status, 400);
+  assert.equal(readDiskStateRaw(), beforeRaw);
 });
 
-// --- 11. Defaults nu suprascriu un `plots` deja populat pe disc -----------------
+test('D6: __proto__ IMBRICAT ADÂNC în plots (nu la nivelul 1) -> 400, disk neschimbat', async () => {
+  const { json: current } = await getState();
+  const beforeRaw = readDiskStateRaw();
+  const raw = `{"baseUpdatedAt":${current.updatedAt},"plots":{"a":{"b":{"c":{"__proto__":{"evil":true}}}}}}`;
+  const { status } = await putState(raw);
+  assert.equal(status, 400, '__proto__ ascuns la adâncime 4 trebuie respins la fel ca la nivelul 1');
+  assert.equal(readDiskStateRaw(), beforeRaw);
+});
 
-test('GET /api/state pe un fișier cu plots deja populat -> îl întoarce exact, nu resetat la {}', async () => {
-  const backup = readDiskStateRaw();
+function makeNested(depth) {
+  if (depth <= 1) return {};
+  return { a: makeNested(depth - 1) };
+}
+
+test('D6: plots la adâncime EXACT 8 -> acceptat (200)', async () => {
+  const { json: current } = await getState();
+  const plots = makeNested(8);
+  const { status, json } = await putState({ baseUpdatedAt: current.updatedAt, plots });
+  assert.equal(status, 200, `plots la adâncime 8 ar trebui acceptat; eroare: ${json && json.error}`);
+});
+
+test('D6: plots la adâncime 9 -> respins (400), disk neschimbat', async () => {
+  const { json: current } = await getState();
+  const beforeRaw = readDiskStateRaw();
+  const plots = makeNested(9);
+  const { status } = await putState({ baseUpdatedAt: current.updatedAt, plots });
+  assert.equal(status, 400, 'plots la adâncime 9 depășește limita de 8 și trebuie respins');
+  assert.equal(readDiskStateRaw(), beforeRaw);
+});
+
+test('D6: plots peste 512 KiB serializat -> 400, disk neschimbat', async () => {
+  const { json: current } = await getState();
+  const beforeRaw = readDiskStateRaw();
+  // un singur câmp cu un șir uriaș, sub adâncime/format valide altfel
+  const plots = { blob: 'x'.repeat(520 * 1024) };
+  const { status } = await putState({ baseUpdatedAt: current.updatedAt, plots });
+  assert.equal(status, 400);
+  assert.equal(readDiskStateRaw(), beforeRaw);
+});
+
+test('D6: plots sub 512 KiB -> acceptat (control pozitiv pentru testul de mai sus)', async () => {
+  const { json: current } = await getState();
+  const plots = { blob: 'x'.repeat(1024) };
+  const { status } = await putState({ baseUpdatedAt: current.updatedAt, plots });
+  assert.equal(status, 200);
+});
+
+// =============================================================================
+// Contract §2.4 — PUT face "full replace", nu merge (pinuit intenționat)
+// =============================================================================
+
+test('contract: PUT care omite `archived` îl resetează la [] (full replace, nu merge)', async () => {
+  // Precondiție auto-suficientă: nu ne bazăm pe ce a lăsat un test anterior
+  // (D6 poate să fi lăsat `archived` deja gol) — populăm explicit noi înșine.
+  const { json: seedBase } = await getState();
+  const { status: seedStatus, json: seeded } = await putState({
+    baseUpdatedAt: seedBase.updatedAt,
+    archived: ['va-fi-sters'],
+    archivedAt: { 'va-fi-sters': 1 },
+  });
+  assert.equal(seedStatus, 200);
+  assert.ok(seeded.archived.length > 0, 'setup-ul propriu al testului trebuie să lase archived populat');
+
+  const { status, json } = await putState({ baseUpdatedAt: seeded.updatedAt, archivedAt: {} }); // fără `archived`
+  assert.equal(status, 200);
+  assert.deepEqual(json.archived, [], 'omiterea lui `archived` la PUT trebuie să-l reseteze la [], nu să-l păstreze');
+
+  const { json: afterGet } = await getState();
+  assert.deepEqual(afterGet.archived, []);
+});
+
+// =============================================================================
+// Contract §2.4 — `savedAt` există pe disc, dar NU e folosit la CAS; un PUT
+// care îl trimite în body trebuie respins ca „câmp necunoscut”.
+// =============================================================================
+
+test('contract: `savedAt` apare în starea salvată, e ISO string', async () => {
+  const { json } = await getState();
+  assert.equal(typeof json.savedAt, 'string');
+  assert.ok(!Number.isNaN(Date.parse(json.savedAt)), 'savedAt trebuie să fie un ISO string valid');
+});
+
+test('contract: PUT cu `savedAt` în body -> 400, respins ca "câmp necunoscut"', async () => {
+  const { json: current } = await getState();
+  const beforeRaw = readDiskStateRaw();
+  const { status } = await putState({ baseUpdatedAt: current.updatedAt, savedAt: new Date().toISOString() });
+  assert.equal(status, 400);
+  assert.equal(readDiskStateRaw(), beforeRaw);
+});
+
+// =============================================================================
+// Fără resturi *.tmp pe disc după rulare
+// =============================================================================
+
+test('nu rămân fișiere *.tmp în dataDir după toate scrierile de mai sus', () => {
+  const files = fs.readdirSync(dataDir).filter((f) => f.endsWith('.tmp'));
+  assert.deepEqual(files, [], `fișiere tmp rămase pe disc: ${files.join(', ')}`);
+});
+
+// =============================================================================
+// D11 — o eroare de I/O la scriere produce 500, cererea NU rămâne agățată,
+// și scrierile ulterioare, valide, încă funcționează (lanțul cozii intact).
+// =============================================================================
+//
+// Folosim un al doilea server, dedicat acestui scenariu, cu propriul
+// dataDir temporar — ca să nu perturbăm starea folosită de testele de mai
+// sus. Forțăm eroarea prin monkey-patch TEMPORAR pe `fs.writeFileSync`
+// (aceeași instanță de modul `fs` folosită și de state.js, deci vizibilă și
+// acolo), restaurat imediat după primul apel eșuat — nu atingem codul de
+// producție, doar interceptăm apelul așa cum fac deja celelalte teste din
+// proiect cu `http.createServer`.
+
+test('D11: eroare de scriere -> 500 o singură dată, cererea nu atârnă, iar o scriere ulterioară validă tot funcționează', async () => {
+  const d11DataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf01-state-d11-'));
+  const srv2 = await startServer({
+    port: 0,
+    host: '127.0.0.1',
+    dataDir: d11DataDir,
+    sessionsDir: fs.mkdtempSync(path.join(os.tmpdir(), 'rf01-state-d11-sessions-')),
+    opener: () => {},
+    isAlive: () => true,
+    now: () => 42,
+  });
+
   try {
-    const shape = {
-      version: 1,
-      archived: [],
-      archivedAt: {},
-      plots: { 'proiect-x': [{ x: 2, y: 3 }] },
-      updatedAt: 777,
+    const url2 = `http://127.0.0.1:${srv2.port}`;
+    const realWriteFileSync = fs.writeFileSync;
+    let patched = true;
+    fs.writeFileSync = (...args) => {
+      if (patched) {
+        patched = false; // eșuăm o singură dată
+        throw Object.assign(new Error('ENOSPC simulat'), { code: 'ENOSPC' });
+      }
+      return realWriteFileSync(...args);
     };
-    fs.writeFileSync(STATE_FILE, JSON.stringify(shape, null, 2));
 
-    const { status, json } = await getState();
-    assert.equal(status, 200);
-    assert.deepEqual(
-      json.plots,
-      { 'proiect-x': [{ x: 2, y: 3 }] },
-      'un plots deja populat pe disc nu trebuie resetat la {} de completarea defaults-urilor'
-    );
+    let put1;
+    try {
+      // cursă cu timeout: dacă cererea ar rămâne agățată (promisiunea
+      // cozii ruptă), acest test ar expira, nu doar ar eșua pe assert.
+      put1 = await Promise.race([
+        fetch(`${url2}/api/state`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Origin: url2 },
+          body: JSON.stringify({ baseUpdatedAt: 0, archived: ['va-esua'] }),
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT: cererea nu a răspuns în 3s')), 3000)),
+      ]);
+    } finally {
+      fs.writeFileSync = realWriteFileSync; // restaurăm indiferent de rezultat
+    }
+
+    assert.equal(put1.status, 500, 'o eroare de scriere pe disc trebuie să producă 500, nu un 200/409 fals');
+
+    // Scriere ulterioară, validă: baseUpdatedAt rămâne 0 pentru că
+    // scrierea eșuată nu a modificat nimic pe disc.
+    const put2 = await fetch(`${url2}/api/state`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Origin: url2 },
+      body: JSON.stringify({ baseUpdatedAt: 0, archived: ['acum-merge'] }),
+    });
+    const json2 = await put2.json();
+    assert.equal(put2.status, 200, 'lanțul cozii de scriere nu trebuie să rămână rupt după un eșec anterior');
+    assert.deepEqual(json2.archived, ['acum-merge']);
   } finally {
-    fs.writeFileSync(STATE_FILE, backup);
+    await srv2.close();
+    fs.rmSync(d11DataDir, { recursive: true, force: true });
   }
 });

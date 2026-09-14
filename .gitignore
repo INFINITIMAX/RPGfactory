@@ -10,3 +10,18 @@ assets/
 # dar rămân sub aceeași restricție de licență — nu intră în git nici de aici
 public/sprites/
 public/ui/
+
+# documente de planificare/coordonare — rămân locale, nu intră în repo
+# (decizie Lucian, 14-09-2026; nu afectează HANDOFF.md/intent.md/docs/handoff/T-*,
+#  care erau deja urmărite înainte de această regulă)
+/AGENTS.md
+/GATES.md
+/TASKS.md
+/spec.md
+/plan.md
+/instructiuni.md
+/docs/AUDIT-*.md
+/docs/DECISIONS.md
+/docs/INTEGRATIONS.md
+/docs/PARITY.md
+/docs/history/

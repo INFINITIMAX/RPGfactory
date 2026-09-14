@@ -1,109 +1,99 @@
-# HANDOFF — RPGfactory
+# HANDOFF — RPG Factory
 
-Document de continuitate pentru proiect. Scris ca orice sesiune nouă (om sau agent) să poată prelua lucrul fără să reparcurgă toată conversația care a dus aici. Actualizează-l la finalul fiecărei sesiuni de lucru semnificative — nu doar la închiderea unui task.
+> **Precedență:** `instructiuni.md` are prioritate peste tot ce s-a muncit până acum în proiect. Dacă acest fișier îl contrazice, `instructiuni.md` câștigă. Vezi `AGENTS.md` § „Precedența documentelor”.
 
-## 1. Ce este proiectul
 
-Un vizualizator local, 2D, pentru agenții reali de coding ai lui Lucian (Claude Code, ulterior alte harness-uri — deocamdată exclus explicit). Rulează la `http://localhost:5311`, citește sesiunile live din `~/.claude/sessions/*.json` și `~/.claude/projects/.../*.jsonl`, și le desenează ca muncitori pe o hartă medievală (Tiny Swords), fiecare proiect cu zona lui.
+Actualizat: **14-09-2026**.
 
-**Scop declarat**: „mă laud cu el" — produs terminat, arătos, de arătat public (LinkedIn etc.), nu experiment intern.
+## 1. Stare curentă și următoarea acțiune
 
-**A ÎNLOCUIT complet fabricaAI** (vechiul joc de birou, șters definitiv de Lucian) — dacă se mai lucrează vreodată la fabricaAI, se pornește tot de aici, nu separat.
+**Interviul de produs este încheiat. Estetica fină este amânată.** Lucian a cerut să trecem la construire, nu să continuăm alegerea clădirilor.
 
-## 2. Ce avem acum (stare verificată, nu presupusă)
+> **NOTĂ DE PRECEDENȚĂ (14-09-2026).** Punctul de aprobare de mai jos a fost **înlocuit** de `instructiuni.md` §1/§13 și de reparația cerută de review-ul RF-00-R (constatarea C1). Textul original al pasului 2 cerea o singură aprobare pentru două lucruri diferite — arhitectura SQLite *și* pornirea RF-01 — ceea ce bloca RF-01 de o decizie de care nu depinde tehnic. Citește `instructiuni.md` **înaintea** acestui fișier. Restul documentului rămâne valabil.
 
-Rulează `node --test` din `D:\RPGfactory` înainte de a crede orice — la ultima verificare (T-19): **205 teste, 0 eșecuri**.
+Deciziile confirmate sunt în `docs/DECISIONS.md` (I01–I43), rezumate în `intent.md`. Specificația tehnică e în `spec.md`; planul de producție e în `instructiuni.md` §10 (`plan.md` a fost înlocuit). **Nu există cod nou de produs în această etapă.**
 
-### Funcțional (bifat în `intent.md`)
-- Citire sesiuni Claude Code live (poziție, status, pid) — T-01
-- Rang din model (Fleet Admiral/Captain/Cadet) — T-02
-- Click pe agent → deschide sesiunea în Claude Code (`claude://resume?session=...`) — T-03
-- Sprite real, animație idle — T-04 (Pawn, Tiny Swords, varianta Blue)
-- Stare reală working/waiting/sleeping (algoritm `awaitingReply` portat exact din bot-crossing) — T-05
-- Arhivare/ascundere agent, persistată local, merge pe 3 căi la conflict — T-06 + T-07
-- Layout de zone per proiect, stabil la scară (alocare pe grilă pătrată, portată din hexagoanele bot-crossing) — T-08 + T-09 + T-10
-- Mișcare reală: spawn → merge spre zonă → stă → pleacă (mașină de stare, sprite de alergare) — T-11
-- Cameră: zoom (implicit 2x) + pan, spawn point în centrul hărții — T-12 + T-15
-- Fundal: doar iarbă peste tot (fără apă/cer/nori — eliminate la T-15), independent de zone/agenți
-- Turn (Tiny Swords) în centrul hărții, la spawn point — T-15
-- Decorații de zonă: tufe animate, stânci statice — T-14 + T-14b
-- Zone tematice: pădure (jos-dreapta, tăiat lemne) + aur (sus-dreapta, minat) — legate de cadranul geografic al celulei unui proiect, nu de proiect specific — T-17 + T-17b
-- Celula `(0,0)` (turn/spawn) rezervată, exclusă din alocarea de zone — portat din `SHIP_CELL` (bot-crossing) — T-16 + T-16b
-- Meniu de acțiuni per agent: Open, **New session**, **Reveal in folder**, Hide — panou stilizat cu assets Tiny Swords (hârtie + butoane) — T-18
-- **Validare Host/Origin pe server** (anti-DNS-rebinding + CSRF) — portat din `isLocalRequest` (bot-crossing) — T-19
+Următorii pași:
+1. ~~Închide review-ul documentar RF-00-R~~ — **făcut** 14-09-2026: verdict RESPINS, transcris integral în `docs/handoff/RF-00-reviewer-raport.md`, constatări acceptate și reparate. Re-review (RF-00-R2) urmează.
+2. **RF-01 este autorizat să înceapă** (gate G4a) — nu mai cere aprobare generală pentru el; păstrează stocarea JSON. **Arhitectura SQLite rămâne neaprobată** (gate G4b) și se confirmă separat, înainte de RF-02.
+3. Brief coder pe disc → coder → brief tester → tester → teste rulate de planner → reviewer read-only → raport integral/decizie.
+4. Nu instala reportere/global hooks, nu migra date reale, nu opri serverul activ și nu face push/deploy fără gate separat.
 
-### Structura tehnică
-- `server.js` — Node HTTP nativ, fără framework. Rute: `/api/agents`, `/api/open`, `/api/reveal`, `/api/new-session`, `/api/state` (GET/PUT), plus servire statică din `public/`.
-- `rank.js`, `status.js`, `state.js` — module server, fiecare cu propriile teste.
-- `public/zones.js`, `public/merge-state.js` — scripturi clasice (fără module ES), încărcate și în browser și în teste (via `node:vm`).
-- `public/app.js` — frontend-ul, un singur fișier mare, canvas 2D, fără framework.
-- `test/*.test.mjs` — 8 fișiere, 205 teste. `app.test.mjs` e cel mai mare (folosește `node:vm` pentru a încărca `app.js`/`zones.js`/`merge-state.js` într-un sandbox — vezi comentariul din capul fișierului pentru capcanele cunoscute: `let`/`const` la nivel de script NU devin proprietăți ale sandbox-ului, doar `function`; obiecte din realm-ul `vm` pot pica la `assert.deepEqual` cross-realm — comparați `.x`/`.y` individual).
-- `docs/handoff/` — 103+ fișiere, brief + raport pentru fiecare task (T-01...T-19, plus follow-up-uri Xb pentru ripple-uri descoperite după livrare).
-- `assets/` — sursele brute Tiny Swords, sub licență cu restricție de redistribuire, **nu intră în git**. `public/sprites/` și `public/ui/` (exporturile folosite efectiv de aplicație) sunt și ele excluse din git (vezi `.gitignore`) — trebuie recreate manual dintr-o clonă nouă (vezi secțiunea 5).
+**Indexul de lucru este `TASKS.md`; nu deduce statusul din timestamps.**
 
-### Repo
-Public, `https://github.com/INFINITIMAX/RPGfactory` (cont `INFINITIMAX`). Commit + push **după fiecare task închis**, nu doar la final de sesiune — regulă permanentă, confirmată de Lucian.
+## 2. Ce construim acum
 
-## 3. Ce vrem să avem (viziunea completă)
+Consolă locală de observabilitate pentru **Pi + Claude Code**, cu profiluri permanente și istoric. Bot Crossing este referința funcțională principală; codul/controalele pot fi reutilizate cu MIT și păstrate temporar cu aspectul lor original dacă reskin-ul nu este gata.
 
-**Paritate REALĂ cu bot-crossing** — nu doar aceleași date, ci aceeași funcționalitate, aceeași interpretare vizuală, agenți care se mișcă similar cu originalul, doar în **2D** (nu 3D, pentru claritate — bot-crossing e 3D/hex, noi suntem 2D/pătrat).
+- Hartă 2D medievală dominantă, panou operațional în dreapta.
+- Repo = regat, extensibil prin celule hexagonale vecine; posturi persistente.
+- Zoom progresiv și focalizare locală fără pierderea totalurilor globale.
+- Tabele nivel ierarhic × stare, global și pe regat; arbore și legături la selecție.
+- Profil stabil ≠ sesiune/PID. O execuție activă per specialist ca regulă a planner-ului; încălcările observate nu se ascund.
+- Specializare principală stabilă; munca se predă între coder/tester/reviewer. Activități auxiliare mici permise, cele distincte delegate.
+- Research la arhivă/mănăstire; coordonare lângă castel; pădure/mină numai pentru working confirmat cu activitate nespecificată.
+- Dimensiune maximă 2× după tokenuri proprii recente; ierarhie preferat albastru/galben/violet. Toți Pawn inițial.
+- Profiluri noi propuse de planner și aprobate de Lucian; asociere prin ID explicit și manual la excepții. Fără ghicit după nume/model.
+- Administrare profil și retragere din taskuri noi; fără scheduler/assignment/pause/cancel în UI inițial.
+- Configurații versionate, dosare de task și ultim proiect. Niveluri per competență pe evaluare + experiență validată, implementate ulterior.
+- Progres = etapă + criterii verificate, nu mărimea transcriptului.
+- Blocked-confirmed / suspected / needs-user / stale distincte; notificări discrete și inbox; „văzut” nu înseamnă „rezolvat”.
+- Tokenuri/cost/CPU/RAM când datele există, cu proveniență; propriu separat de echipă, fără dublare.
+- Dosare/agregate permanente, eșantioane detaliate 30 zile.
+- Țintă inițială: 20 specialiști / 5 proiecte. House2 este doar preferință provizorie pentru atelier, nu lucru de implementat înaintea fundației.
 
-**După** ce paritatea e completă (nu în paralel, nu înainte — decizie explicită a lui Lucian): un **strat suplimentar, al nostru**, care nu există în bot-crossing — hiperspecializare pe agent: specializare (ce fel de task face), nivel care crește din knowledge persistent încărcat agentului. Rangul (Fleet Admiral/Captain/Cadet, din model) e deja făcut (T-02) ca parte timpurie a acestui strat, restul așteaptă.
+## 3. Ce există efectiv în cod
 
-## 4. Ce vrem să facem (lista rămasă, din `intent.md`)
+Bază Git: `6fecdadb773bb8ec0015bfcccedaaaf697ff7b77`, repo `https://github.com/INFINITIMAX/RPGfactory`. La auditul din 13-09-2026, HEAD local și remote erau identice. Orice confirmare ulterioară cere `git ls-remote`, nu deducție din `git log`.
 
-Necompletate, în ordinea probabilă de atac (nu obligatorie — discută cu Lucian ordinea, cum s-a făcut la fiecare rundă anterioară A→B→C):
+Implementare existentă: Node HTTP fără framework, CommonJS, Canvas 2D într-un `public/app.js` mare, citire numai a registrului Claude CLI și a cozilor transcripturilor, `rank.js`, `status.js`, `state.js`, `zones.js`, `merge-state.js`. Date în `data/state.json`, artă locală ignorată de Git.
 
-1. **Indicator „?" dedicat** pentru „are nevoie de tine" (separat de punctul de culoare de status) + **`viewedAt`** (marchezi ca „văzut", stinge indicatorul) — pereche mică, coerentă.
-2. **`hiddenProjects`** — ascunde tot proiectul dintr-o dată, nu doar agenți individuali (extinde Hide-ul existent de la T-07).
-3. **Dezambiguizare proiecte** cu nume de folder identic (`disambiguateProjects`).
-4. **`sărbătorește`** (PR merged) — cel mai mare rămas, necesită integrare git/GitHub reală (verifică întâi cum face bot-crossing, la fel ca la toate task-urile de până acum — cod-ul lor probabil detectează merge-ul unui PR prin polling la API-ul GitHub sau printr-un hook local; nu presupune, citește).
+**Nu există încă:** adaptor Pi, profiluri permanente/SQLite, HUD de paritate, dosare/telemetrie completă sau leveling verificat.
 
-**Explicit excluse/amânate, nu goluri de rezolvat**:
-- `blocat` — nici bot-crossing nu-l rezolvă pentru CLI (doar pentru desktop app, la care n-avem acces). Ar necesita heuristic propriu, amânat explicit de Lucian.
-- Alte harness-uri (Codex, Cursor...) — exclus explicit.
+Auditul complet este `docs/AUDIT-13-09-2026.md`. Probleme-cheie: animații contrare activității, selecție ambiguă, XSS, stale invizibil, bind pe toate interfețele, containment static incomplet, validare/CAS insuficiente și plecare invizibilă înainte de turn.
 
-**După tot ce e deasupra**: stratul de hiperspecializare (secțiunea 3).
+Dovadă istorică: **205 teste, 0 fail**, rulate pe 13-09-2026 într-o copie izolată, cu `child_process.spawn` substituit pentru a nu deschide harness-uri. Nu pretinde că această dovadă validează noua arhitectură.
 
-## 5. Cum continuăm de aici — disciplina de lucru (NU se schimbă fără acordul lui Lucian)
+**ATENȚIE:** testele actuale de state modifică temporar fișierul real `data/state.json`, iar testele API pot lansa opener-ul Windows. Până la RF-01, nu rula suita direct peste checkout-ul activ. Folosește copie temporară și opener substituit, conform auditului. RF-01 trebuie să elimine această nevoie prin dependency injection.
 
-### 5.1 Referință activă la bot-crossing, înainte de orice brief
-Bot-crossing e clonat local la `/tmp/claude/bot-crossing-trial` (WSL/git-bash path — accesibil din Bash, NU din Read/Windows paths). **Înainte de a scrie orice brief pentru ceva ce bot-crossing rezolvă deja** (parsare, cache, mecanism de securitate, deep link, orice), citește codul lor relevant efectiv — nu ghici structura, nu reconstitui din memorie ce ai citit acum două sesiuni. Fișierele relevante găsite până acum:
-- `server/api.mjs` — endpoint-uri, `isLocalRequest` (Host/Origin), `resolveFolder`, `launch`/`present` (opener OS).
-- `server/harnesses/claude-code.mjs` — `openThread`/`newSession`, deep link-uri `claude://...`.
-- `src/world/plots.js` — alocarea de zone hexagonale, `SHIP_CELL` (celulă rezervată).
+## 4. Descoperiri tehnice și propuneri
 
-Dacă un task nou atinge o zonă din bot-crossing nemenționată aici, caut-o din nou cu `grep -rn` în `/tmp/claude/bot-crossing-trial/server` și `/src`, nu presupune că nu există.
+`docs/INTEGRATIONS.md` separă instalat/configurat/expus/disponibil de capabilități încă nedemonstrate.
 
-### 5.2 Fluxul de 4 agenți — pentru orice task cornerstone
-Planner scrie brief pe disc (`docs/handoff/T-XX-coder.md`), lansează coder (Agent tool, `subagent_type: "coder"`), verifică raportul + codul propriu-zis (nu doar raportul — citește fișierul modificat), scrie brief tester (`docs/handoff/T-XX-tester.md`), lansează tester, **rulează efectiv suita de teste** (`node --test` din `D:\RPGfactory`, planner e singurul care rulează comenzi), lansează reviewer cu context complet (ce s-a verificat deja, ce să verifice specific), transcrie verdictul VERBATIM în `docs/handoff/T-XX-reviewer-raport.md` + decizia planner-ului la final, actualizează `intent.md`, **commit + push**.
+- Pi global 0.85.1; pi-subagents 0.60.0; Node 24.19.0 cu `node:sqlite` disponibil.
+- Pi oferă sesiuni JSONL și artefacte de delegare. `parentId` al mesajului NU este părinte de agent.
+- `agent_settled` este ancora documentată pentru status stabil după retries/compaction, nu `agent_end` singur.
+- Artefactele pot conține metadate private/control tokens; se extrag numai câmpuri allowlisted.
+- Herdr rămâne multiplexor, nu sursă autoritară de runtime.
+- Pentru identity/activity/task/progress precis poate fi necesar reporter opt-in; nicio extensie RPG nu este încă instalată.
+- SQLite local și modelul profil/configuration/run/task/evidence sunt **propuse**, nu aprobate în interviu. RF-01 precede migrarea și rămâne concentrat pe izolare/siguranță.
 
-### 5.3 Ripple-uri — un tipar recurent de reținut
-Aproape fiecare task de fundație (T-12, T-14b, T-15, T-16, T-17) a produs efecte secundare neprevăzute în teste PREEXISTENTE, scrise pentru un comportament anterior. Tiparul de rezolvare, deja rodat:
-1. Planner rulează suita completă DUPĂ ce tester-ul predă — nu presupune că "testele noi trec" înseamnă "suita întreagă trece".
-2. Dacă apar eșecuri în teste vechi: diagnostichează cauza EXACT (de obicei cu un `node -e` + `vm` de reproducere, sau citind codul direct) înainte de a decide cine repară.
-3. **Regulă de proces** (rafinată de-a lungul T-07→T-16): o reparație mecanică, fără nicio decizie de design/interpretare (index greșit, obiect cross-realm la `assert`, buclă care nu golește un array, header lipsă adăugat uniform) → planner repară direct. O reparație care cere raționament nou (calcul de timing/geometrie, alegere între comportamente plauzibile, redesign de scenariu de test) → task separat, gen `T-XXb`, la tester sau coder, chiar dacă diagnosticul complet a fost deja făcut de planner.
-4. Reviewer verifică ÎNTOTDEAUNA și reparațiile directe ale planner-ului, nu doar livrarea coder/tester.
+## 5. Referința Bot Crossing
 
-### 5.4 Asset-uri Tiny Swords
-Sursă: `assets/raw/Tiny Swords (Free Pack)/...` (licență custom, gratuit, uz comercial ok, **fără redistribuire** — nu intră în git nici brut, nici exportat). Când ai nevoie de un asset nou: caută-l în `assets/raw` (structură pe categorii: `Units/<Culoare> Units/Pawn/`, `Terrain/Resources/<Wood|Gold|Meat>/`, `Buildings/<Culoare> Buildings/`, `UI Elements/UI Elements/<Papers|Buttons|...>`), copiază-l în `public/sprites/` (joc) sau `public/ui/` (interfață) cu un nume descriptiv, verifică vizual cu Read tool înainte de a-l folosi (dimensiuni, e sprite sheet sau imagine unică). Culoarea activă e **Blue** (pawn, turn) — păstrează consistența dacă adaugi alte unități/clădiri, doar dacă Lucian nu cere altă culoare explicit.
+Commit fixat pentru inventarul curent: `a4972429ddf6a66a17445abfedbe39e90969d554`.
 
-**Important**: `public/sprites/` și `public/ui/` sunt în `.gitignore` — dacă cineva clonează repo-ul de pe GitHub, aceste foldere lipsesc și aplicația nu are sprite-uri. Nu există încă un script de export automat — fiecare asset a fost copiat manual (`cp`) de planner, pe măsură ce a fost nevoie. Dacă se reia proiectul de la o clonă nouă, trebuie refăcută manual copierea (vezi rapoartele T-04/T-13/T-14/T-15/T-17/T-18 pentru lista exactă de fișiere sursă → destinație).
+Clona inspectată este la `C:/tmp/pi-github-repos/runtime-9TBgpz/cb3c6e7a123a8852c7bfa878192b656e946752e03ee4b1fcaaa8126db935b466`. Este temporară; verifică existența înainte de a o folosi. Dacă lipsește, recuperează referința fixată, nu ghici vechea cale Bash.
 
-### 5.5 Implicarea lui Lucian
-Lucian vrea să fie implicat în toate deciziile de arhitectură, cu explicații, nu doar rezultate — nu se decide tacit. Când apare o ambiguitate reală de design (nu doar o alegere mecanică), întreabă înainte de a scrie brief-ul, cum s-a făcut la ordinea A→B→C sau la alegerea culorii pachetului Tiny Swords.
+`docs/PARITY.md` are inventarul verificat de meniuri/acțiuni/setări și diferențele 2D. Înainte de un brief de portare, citește sursa relevantă efectiv.
 
-## 6. Cum pornești serverul local
+Corecții față de handoff-ul vechi:
+- `prState` Claude este citit din evidența Desktop, nu printr-un polling GitHub implementat acolo.
+- `transcriptProgress` nu este procent real al taskului; noi folosim criterii/etape.
+- Codul original este MIT; păstrează notificarea pentru porțiunile reutilizate.
+- Funcțiile strict 3D sunt decizii explicite în inventar, nu motive pentru a importa Three.js sau a afișa controale fără efect.
 
-```
-cd D:\RPGfactory
-node --env-file=.env server.js
-```
-Ascultă pe portul din `.env`/`PORT` (implicit 5311). Dacă un server vechi rulează deja cu cod stale (schimbări în `server.js` nu se aplică fără restart), găsește-l cu `Get-CimInstance Win32_Process -Filter "name='node.exe'"` și oprește-l înainte de restart.
+## 6. Artă, date și publicare
 
-## 7. Fișiere-cheie de citit, în ordine, la începutul unei sesiuni noi
+Tiny Swords este pachetul local activ. `assets/`, `public/sprites/`, `public/ui/` sunt ignorate de Git. `assets/README.md` este și el doar local; viitorul manifest/licențe trebuie pus într-un director versionat fără a publica arta brută.
 
-1. Acest fișier (`HANDOFF.md`).
-2. `intent.md` — checklist-ul viu, sursa de adevăr pentru ce e bifat.
-3. Ultimele 2-3 `docs/handoff/T-XX-reviewer-raport.md` (cele mai recente task-uri) — ca să știi exact ce s-a decis ultima dată și de ce.
-4. `git log --oneline` — confirmă ce a ajuns efectiv pe GitHub (uneori diferă de ce crezi că s-a închis, dacă o sesiune s-a întrerupt înainte de push).
+Nu există încă un export/setup automat care reproduce aspectul din clean clone. Nu rezolva prin publicarea asset-urilor fără verificarea licenței. Fișierele `.env`, starea, sesiunile și dosarele private nu intră în Git.
+
+Handoff-ul istoric consemna push după fiecare task închis. Nu îl folosi ca dovadă că un plan încă neaprobat, datele private sau o migrare au fost autorizate pentru publicare. Gate-ul global de review/aprobare înainte de push/deploy rămâne aplicabil.
+
+## 7. Continuitate și reguli
+
+Regulile de proiect sunt `AGENTS.md`. Predările sunt în `docs/handoff/`, statusul în `TASKS.md`, gates în `GATES.md`.
+
+Vechile `HANDOFF.md` și `intent.md` au fost păstrate integral în `docs/history/pre-interview-14-09-2026/`. Cele 103 handoff-uri T-01–T-19 rămân nemodificate. Nu le șterge și nu le „corecta” retrospectiv; consemnează diferențele în documentele curente.
+
+Nu continua interviul estetic. **RF-01 este autorizat să înceapă** (gate G4a) — nu așteaptă nicio aprobare generală suplimentară; aprobarea separată privește doar arhitectura SQLite pentru RF-02 (gate G4b). Cod și teste separate pe roluri, comenzi executate numai de planner în PowerShell.

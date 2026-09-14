@@ -1,53 +1,81 @@
-# Intent — RPGfactory
+# Intent — RPG Factory
 
-## Ce este
+> **Precedență:** `instructiuni.md` are prioritate peste tot ce s-a muncit până acum în proiect. Dacă acest fișier îl contrazice, `instructiuni.md` câștigă. Vezi `AGENTS.md` § „Precedența documentelor”.
 
-Un vizualizator local, 2D, pentru agenții reali de coding ai lui Lucian (Claude Code, ulterior alte harness-uri). Scop declarat: „mă laud cu el" — un produs terminat, arătos, pe care îl poate arăta public (LinkedIn etc.), nu doar un experiment intern.
 
-## Scopul de funcționalitate — paritate cu bot-crossing
+Actualizat: 14-09-2026.
+Status: intenție de produs confirmată în interviu. **Primul lot de cod (RF-01 — izolare și siguranță) este autorizat** (gate G4a). Arhitectura tehnică nouă (SQLite, model canonic — RF-02 și dependenții) rămâne în aprobare (gate G4b). Implementarea nouă nu este încă începută.
 
-**Produsul nostru e produsul lor (bot-crossing), cu toată funcționalitatea și toate elementele vizuale, doar că:**
-- altă temă vizuală (nu colonie spațială/astronauți — temă proprie, în lucru; a trecut medieval → spațial → **înapoi medieval** (12-09-2026), Tiny Swords e pachetul activ; tema poate încă schimba, nu bloca funcționalitatea din cauza asta)
-- **2D**, nu 3D (probabil stil pixelat/pixel art la final, nu vector neted)
-- plus un **strat suplimentar, al nostru**, care nu există în bot-crossing: **hiperspecializare pe agent** — rang (Fleet Admiral/Captain/Cadet, din model), specializare (ce fel de task face agentul), și ideea de nivel care crește când agentului i se încarcă knowledge persistent.
+## Problema
 
-Nu construim un subset minimal și gata — obiectivul e să acoperim, în timp, toată lista de funcționalități reale pe care le are bot-crossing (vezi harta de arhitectură făcută în conversație, sau re-derivată din codul lor la nevoie), reconstruite de la zero, cu referință activă la codul lor când rezolvă deja o problemă (parsare, cache, alt harness) — nu ghicim ce au făcut ei, verificăm.
+Lucian are nevoie să vadă clar agenții reali din **Pi și Claude Code**: cine lucrează, ce task are, cine coordonează pe cine, unde se așteaptă o decizie, unde există blocaj și ce resurse consumă. Un decor animat care nu reflectă date corecte nu satisface scopul.
 
-### Lista de funcționalitate bot-crossing, de acoperit (bifează pe măsură ce se face)
+## Rezultat propus
 
-**Important, clarificat 13-09-2026**: Lucian vrea paritate REALĂ — nu doar aceleași date, ci **aceeași funcționalitate, aceeași interpretare vizuală, agenți care se mișcă similar cu originalul** (doar în 2D, nu 3D, pentru claritate). Stratul de hiperspecializare (rang/nivel) se adaugă **DOAR după** ce toată lista de mai jos e acoperită — nu în paralel, nu înainte.
+Consolă locală de observabilitate și administrare a profilurilor, cu o lume medievală 2D. **Un repo = un regat**, extensibil prin celule hexagonale adiacente. Hartă dominantă, panou operațional în dreapta, zoom progresiv și focalizare pe proiect.
 
-- [x] Citire sesiuni Claude Code (poziție live, status, pid) — T-01
-- [x] Rang din model (Fleet Admiral/Captain/Cadet) — T-02 *(parte din stratul de hiperspecializare, făcută deja înainte de clarificarea de mai sus — nu se reface, dar restul stratului așteaptă)*
-- [x] Click → deschide sesiunea înapoi în harness (deep link `claude://...`) — T-03
-- [x] Stare reală working/waiting/sleeping — T-05 (algoritm exact bot-crossing, `awaitingReply` pe coada transcript-ului)
-- [x] Arhivare/ascundere agent, persistată local — T-06 (backend) + T-07 (frontend, buton Hide, listă ascunși, merge pe 3 căi la conflict)
-- [x] Layout stabil la scară — T-08 (algoritm de alocare, hexagoane→pătrat) + T-09 (persistență `plots`) + T-10 (integrare în randare: zone per proiect)
-- [x] Elemente vizuale: sprite-uri reale, animație idle — T-04 (muncitor Pawn, Tiny Swords)
-- [x] **Mișcare reală** (apare, merge spre zonă, pleacă) — T-11 (mașină de stare spawning→walking→at-site→leaving, sprite de alergare, fără pathfinding/obstacole — nu ne trebuie la 2D plat)
-- [x] Zoom + pan cameră, spawn în centrul ecranului, zona de lucru pe tot ecranul — T-12
-- [x] Teren concret (fundal de apă + iarbă din tilemap real) — T-13
-- [x] Lume vie: decorații pe celule (tufe animate, stânci statice) + nori în mișcare pe fundal — T-14 + T-14b (fix suprapunere decorație/agent)
-- [x] Simplificare fundal: doar iarbă peste tot (apă/nori eliminate, independent de zone/agenți), zoom implicit 2x, turn central (Tiny Swords) la spawn point — T-15
-- [x] Fix: celula `(0,0)` (turn/spawn point) rezervată, exclusă din alocarea `zones.js` — portat din `SHIP_CELL` (bot-crossing) — T-16 + T-16b (fix ripple teste ancoră)
-- [x] Zone tematice: pădure (tăiat lemne, cadran jos-dreapta) + aur (minat, cadran sus-dreapta), legate de poziția geografică a celulei, nu de proiect — T-17 + T-17b (fix ripple teste semănare stare)
-- [ ] `blocat` — verificat 13-09-2026: **nici bot-crossing nu rezolvă asta pentru CLI** (doar pentru bookkeeping-ul aplicației desktop, la care noi n-avem acces). Ar necesita heuristic propriu (scanare `is_error` în coada transcriptului) — decizie amânată explicit de Lucian, nu e o simplă portare
-- [ ] `sărbătorește` (PR merged) — necesită integrare git/GitHub, complet absentă la noi
-- [ ] Indicator „?" dedicat pentru „are nevoie de tine" (separat de punctul de culoare de status)
-- [ ] `viewedAt` — marchezi ca „văzut", stinge indicatorul „?"
-- [x] „New session" + „Reveal in folder" — meniu de acțiuni per agent, portat din `/api/new-session`/`/api/reveal` (bot-crossing), stilizat cu assets Tiny Swords — T-18
-- [ ] `hiddenProjects` — ascunde tot proiectul dintr-o dată, nu doar agenți individuali
-- [x] Validare Host/Origin pe server (securitate minimă anti-DNS-rebinding/CSRF) — portat din `isLocalRequest` (bot-crossing) — T-19
-- [ ] Dezambiguizare proiecte cu nume de folder identic (`disambiguateProjects`)
-- [ ] Alte harness-uri (Codex, Cursor, ...) — **exclus explicit de Lucian**, nu e gol, e decizie
-- [ ] Strat de hiperspecializare complet (al nostru, nu din bot-crossing): specializare pe task, nivel din knowledge persistent — **așteaptă până se bifează tot ce e deasupra**
+Baza funcțională este tabloul **Bot Crossing**, nu un subset presupus echivalent. Folosim referința activă și putem reutiliza codul cu respectarea MIT. Tema se adaptează incremental; dacă o componentă nu poate fi adaptată încă, îi păstrăm comportamentul/interfața originală funcțională. Nu importăm rendererul 3D doar pentru a păstra aspectul.
 
-## Ce NU e obiectivul
+Scopul de prezentare publică rămâne secundar. Estetica fină și alegerea clădirilor nu mai blochează producția.
 
-- Nu copiem cod din bot-crossing (MIT ar permite-o, dar Lucian a ales explicit „de la zero, cu referință").
-- Nu ținem 3D, camera, post-procesare, pipeline de asset .glb — inutile la 2D.
-- Nu blocăm progresul funcțional în așteptarea temei vizuale finale — funcționalitatea se construiește cu placeholder-e, tema se schimbă oricând peste ea.
+## Cerințe confirmate
 
-## Disciplină de lucru
+Sursa completă: [docs/DECISIONS.md](docs/DECISIONS.md), I01–I43.
 
-Fluxul de 4 agenți (planner→coder→tester→reviewer) pentru orice task cornerstone, cu brief-uri și rapoarte în `docs/handoff/`, conform regulilor globale ale lui Lucian. Lucian vrea implicare și explicație la fiecare decizie de arhitectură — nu se decide tacit.
+### Observabilitate
+
+- Pi și Claude Code simultan; Herdr nu este harness.
+- Stare, activitate declarată, task, ierarhie și prospețime distincte, cu proveniență.
+- Blocaj confirmat, posibil blocaj, așteptare de răspuns și telemetrie lipsă nu se confundă.
+- Progres = etapă și criterii verificate; nu transcript size sau tokenuri.
+- Panou permanent cu tabele **nivel ierarhic × stare**, global și per regat.
+- Arbore și legături la selectare; inspector cu coordonator, copii și muncă.
+- Listă de intervenții, notificări discrete fără sunet/focus automat; „văzut” nu rezolvă problema.
+
+### Specialiști și istoric
+
+- Profil permanent de la prima versiune, independent de sesiune/PID.
+- Un specialist are o singură execuție activă global; planner-ul respectă regula, vizualizatorul nu omoară procese.
+- Planner-ul propune profiluri noi, Lucian aprobă. Asociere explicită prin ID, cu corecție manuală pentru sesiuni neasociate; fără identificare ghicită.
+- Configurații versionate; fiecare task păstrează model/harness/configurație.
+- Administrare nume/specializare și retragere din repartizări viitoare; fără task assignment sau pause/resume/cancel din UI în prima versiune.
+- Taskul trece între specialiști; coderul nu devine automat reviewer. Activități auxiliare mici permise, muncă distinctă delegată.
+- Dosare structurate independente de transcript: obiectiv, criterii, predări, verificări, review, rezultat și referințe la livrări.
+- Istoric pe taskuri cu cronologie, filtre și ultim proiect în profil.
+- Niveluri per competență bazate ulterior pe evaluare + experiență validată; nu nivel inventat din model sau cantitatea de knowledge.
+
+### Lume și resurse
+
+- Inițial toți Pawn; identitate vizuală specializată și leveling complet ulterior.
+- Ierarhie structurală: coordonator principal, copii direcți, descendenți; paletă preferată albastru/galben/violet.
+- Specialiștii au posturi stabile și rămân acolo în repaus; se mută când sunt repartizați la alt proiect.
+- Activități inițiale: planificare/coordonare, implementare, testare, review, research.
+- Research → arhivă/mănăstire; coordonare → castel. Mina/pădurea sunt fallback numai pentru lucru confirmat cu activitate nespecificată.
+- Dimensiune maximă 2×, după ritmul recent de tokenuri proprii, cu praguri comune întregii flote.
+- Tokenuri input/output/cache, cost real/estimat și CPU/RAM atribuit justificat; indisponibil nu înseamnă zero.
+- Consum propriu distinct de ramura coordonată; totaluri fără dublare.
+- Dosare/evaluări/agregate permanente; eșantioane detaliate 30 zile.
+- Țintă de validare inițială: 20 specialiști și 5 proiecte; nu plafon artificial.
+
+## Ce nu construim acum
+
+- Un orchestrator care înlocuiește planner-ul Pi/Claude Code.
+- O economie RPG care decide execuțiile sau transformă consumul în competență.
+- Leveling complet, antrenare ori memorie avansată în primul lot.
+- Suport nou pentru alte harness-uri decât Pi/Claude Code fără decizie separată; existența unor adaptoare upstream se consemnează în inventar.
+- Arhivarea automată a transcripturilor brute, secrete, fișiere `.env` sau date private în Git.
+- Un nou redesign estetic înainte de date corecte și funcționalitate.
+
+## Stare reală
+
+La baza `6fecdad`, aplicația este un prototip Claude-only. Auditul [13-09-2026](docs/AUDIT-13-09-2026.md) a verificat 205 teste în copie izolată, cu opener Windows substituit, și a identificat defecte semnificative neacoperite de suită. Această dovadă NU certifică noul produs și nu se transferă după modificări.
+
+Implementările T-01–T-19 și rapoartele lor rămân istorie, nu o certificare de paritate. Intentul anterior a fost păstrat integral în [docs/history/pre-interview-14-09-2026/intent.md](docs/history/pre-interview-14-09-2026/intent.md).
+
+## Pași și aprobare
+
+1. Consolidare și verificare a specificației/planului, cu propunerile tehnice etichetate.
+2. **RF-01 (izolare + siguranță) este autorizat** și nu mai așteaptă o aprobare generală — gate G4a, `instructiuni.md` §1/§13. Păstrează stocarea JSON.
+3. **Arhitectura nouă (SQLite, model canonic) cere aprobare separată înainte de RF-02** — gate G4b. Nu blochează RF-01.
+4. Build incremental în fluxul planner → coder → tester → reviewer, cu dovezi rulate de planner.
+5. Gate separat pentru activarea integrărilor globale, migrare, push și deploy.
