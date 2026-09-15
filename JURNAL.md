@@ -21,7 +21,7 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-02c | sesiuni observate, asociere la profiluri | ✅ gata (442/442 teste), **urcat pe GitHub** |
 | RF-03a | citirea reală din Claude Code | ✅ gata (459/459 teste), **urcat pe GitHub** |
 | RF-03b | citirea reală din Pi + reporter | ⬜ urmează |
-| RF-04 | **primul ecran vizibil**: tabele, inspector | ✅ gata (497/497 teste), **aștept aprobarea ta pentru push** |
+| RF-04 | **primul ecran vizibil**: tabele, inspector | ✅ gata (497/497 teste), **urcat pe GitHub** |
 | RF-05 | harta cu hexagoane, personaje, mișcare | ⬜ |
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ |
@@ -191,7 +191,10 @@ Reviewer-ul a acceptat, fără nimic de retrimis — a confirmat el însuși, ci
 
 **Ai acum, chiar dacă nu ai deschis încă pagina**: un ecran real cu profilurile tale de agenți și sesiunile Claude Code observate live (de la RF-03a), unde poți aproba un profil sau lega o sesiune de el, direct din pagină.
 
-**Nu am urcat încă pe GitHub.** Aștept aprobarea ta.
+### 15-09 — PUSH: RF-04 pe GitHub
+Ai aprobat. **Commit `1739f04`**, 19 fișiere, +2405 linii. Urcat pe `INFINITIMAX/RPGfactory`.
+
+**Corecție importantă**: serverul tău de pe 5311 (PID 54236) rulează în continuare cu codul de dinainte de tot ce am făcut azi — n-a fost repornit niciodată. Ca să vezi noul ecran, serverul trebuie repornit cu codul nou. Nu fac asta singur, fără să-mi spui — oprirea/repornirea serviciilor tale active e o acțiune pe care o confirmi tu explicit, nu o iau de la sine.
 
 ### 15-09 — PUSH: RF-02b pe GitHub
 Ai aprobat. **Commit `c1f215b`**, 13 fișiere, +2249 linii. Urcat pe `INFINITIMAX/RPGfactory`.
