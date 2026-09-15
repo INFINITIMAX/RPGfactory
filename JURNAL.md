@@ -16,7 +16,7 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 |---|---|---|
 | RF-00 | pune ordine în documente | ✅ gata |
 | RF-01 | face serverul sigur și testabil | ✅ gata, **urcat pe GitHub** |
-| RF-02a | baza de date: structura și migrațiile | ✅ gata (297/297 teste), **aștept aprobarea ta pentru push** |
+| RF-02a | baza de date: structura și migrațiile | ✅ gata (297/297 teste), **urcat pe GitHub** |
 | RF-02b | profilurile agenților, salvate permanent | ⬜ urmează |
 | RF-02c | legarea sesiunilor reale de profiluri | ⬜ urmează |
 | RF-03 | citirea reală din Pi și Claude Code | ⬜ |
@@ -25,7 +25,7 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ |
 
-**Pe GitHub:** ultimul urcat e `cbca9e0` (RF-01). RF-02a e gata, dar doar pe disc — nu urc nimic fără să confirmi tu întâi (regulă nouă, vezi mai jos).
+**Pe GitHub:** ultimul urcat e `2e004ec` (RF-02a).
 
 **Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. Serverul tău de pe portul 5311 (PID 54236) rulează în continuare, n-a fost oprit niciodată.
 
@@ -76,6 +76,11 @@ O singură notă (nu blochează): comanda `node --test test/` nu merge pe Node 2
 **Rezultat final: 297 teste, 297 trec, 0 eșecuri.**
 
 **Nu am urcat încă pe GitHub.** Regula s-a schimbat față de vechiul proiect (T-01…T-19, unde urca automat după fiecare task): acum trebuie aprobarea ta explicită înainte de commit + push. Aștept răspunsul tău.
+
+### 15-09 — PUSH: RF-02a pe GitHub
+Ai aprobat. **Commit `2e004ec`**, 15 fișiere, +2228 linii. Urcat pe `INFINITIMAX/RPGfactory`.
+
+Ce s-a urcat: `db.js`, `migrations/001-profiluri.sql`, `test/db.test.mjs`, `JURNAL.md`, plus toate brief-urile/rapoartele RF-02a din `docs/handoff/`. Documentele de coordonare (`TASKS.md`, `GATES.md`, `AGENTS.md`, `instructiuni.md`, `spec.md` etc.) rămân doar local, cum s-a decis pe 14-09.
 
 ### 15-09, seara — SESIUNEA S-A ÎNCHEIAT AICI
 
