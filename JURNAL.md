@@ -8,9 +8,9 @@ Fișier viu, scris pentru Lucian, în limbaj normal.
 
 ## UNDE SUNTEM ACUM
 
-**15-09-2026.**
+**16-09-2026.** (verificat și corectat la această dată — rândul de mai jos era neactualizat de o zi, vezi „CE A MERS PROST" pentru cum am prins-o)
 
-Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de date. Primul lot în care apare ceva pe ecran e RF-04, adică peste încă două etape.
+Aplicația **se vede** — hartă cu hexagoane, personaje, iarbă și clădiri, plus tabelele de profiluri/sesiuni. Fundația (server, bază de date) și primele două ecrane vizibile (RF-04, RF-05) sunt gata.
 
 | Etapă | Ce face | Stare |
 |---|---|---|
@@ -22,13 +22,17 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-03a | citirea reală din Claude Code | ✅ gata (459/459 teste), **urcat pe GitHub** |
 | RF-03b | citirea reală din Pi + reporter | ⬜ **mutat mai jos** — Lucian a ales harta întâi |
 | RF-04 | **primul ecran vizibil**: tabele, inspector | ✅ gata (497/497 teste), **urcat pe GitHub** |
-| RF-05 | harta cu hexagoane, personaje, mișcare | ✅ **gata complet** — harta, zonele și personajele se văd toate acum (567/567 teste) |
+| RF-05 | harta: hexagoane, memorie, personaje, sprite-uri reale | ✅ **gata complet** (RF-05a/b/c/e — RF-05d respins, înlocuit), 567/567 teste, **urcat pe GitHub** |
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ |
 
-**Pe GitHub:** ultimul urcat e `8001312` (RF-05c — RF-05 complet).
+**Pe GitHub:** ultimul urcat e `a6ee77e` (RF-05e). Nimic nesalvat local — verificat explicit, `git status` curat.
 
-**Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. **Serverul tău de pe portul 5311 nu mai rulează** (verificat direct — port liber, PID vechi 54236 dispărut; nu l-am oprit eu, s-a oprit separat, în afara acestei sesiuni). Pornește-l din nou ca să vezi noul ecran RF-04.
+**Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. **Serverul tău de pe portul 5311 rulează** (l-am pornit eu, 15-09-2026, la cererea ta, ca să vezi harta — `node --env-file=.env server.js`, în fundal, PID poate diferi dacă a fost repornit între timp). Am creat manual 4 profiluri de test (`specialist-test-1..4`) direct în baza ta reală, doar ca să populeze harta pentru verificare — pot fi șterse oricând ceri.
+
+**Documente care NU sunt pe GitHub, doar local** (decizia ta, 14-09-2026, reconfirmată 16-09-2026): `instructiuni.md`, `AGENTS.md`, `TASKS.md`, `GATES.md`, `spec.md`, `plan.md`, `docs/DECISIONS.md`, `docs/PARITY.md`, `docs/INTEGRATIONS.md`. Dacă vreodată se pierde acest folder de pe disc, guvernanța proiectului se pierde cu el — doar codul rămâne pe GitHub.
+
+**Deschis, nerezolvat:** ai spus, 15-09-2026 seara, că nu ești mulțumit de direcție — motivul confirmat: rezultatul vizual (harta) nu arată cum ți-ai imaginat, chiar și cu sprite-urile reale din RF-05e. Nu ai clarificat încă exact ce anume — am întrebat, aștept răspuns. **Nu pornesc alt lot nou (RF-03b, RF-06 etc.) până nu lămurim asta.**
 
 ---
 
@@ -359,6 +363,10 @@ Lecția: întreabă cine folosește lucrul, înainte să optimizezi cum se compo
 **Am schimbat un contract fără să-l consemnez unde era scris.** Am dat instrucțiuni noi prin briefuri de corecție, dar am lăsat documentul inițial spunând altceva. Review-ul a semnalat-o, și avea dreptate.
 
 **Am vorbit prea mult în jargon** și te-am pierdut. De-aici vine fișierul ăsta.
+
+**Am lăsat rezumatul de sus („UNDE SUNTEM ACUM") neactualizat o zi întreagă**, deși regula spune „la momentul faptei" — spunea încă „aplicația nu se vede" și „serverul e oprit" cu mult după ce amândouă deveniseră false. Am prins-o abia când m-ai întrebat direct „avem toate md actualizate?" — nu din proprie inițiativă. Am actualizat celelalte fișiere (TASKS.md, GATES.md) la fiecare pas, dar am tratat greșit rezumatul din capul acestui fișier ca pe ceva ce se poate actualiza „mai încolo", exact genul de reconstituire retroactivă pe care regula o interzice explicit.
+
+Lecția: „la momentul faptei" înseamnă și rezumatul de sus, nu doar intrările cronologice de mai jos — un cititor care sare direct la început nu ar trebui să găsească informație veche.
 
 ---
 
