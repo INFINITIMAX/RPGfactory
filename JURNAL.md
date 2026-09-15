@@ -21,7 +21,7 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-02c | sesiuni observate, asociere la profiluri | ✅ gata (442/442 teste), **urcat pe GitHub** |
 | RF-03a | citirea reală din Claude Code | ✅ gata (459/459 teste), **urcat pe GitHub** |
 | RF-03b | citirea reală din Pi + reporter | ⬜ urmează |
-| RF-04 | **primul ecran vizibil**: tabele, arbore, inspector | ⬜ |
+| RF-04 | **primul ecran vizibil**: tabele, inspector | ✅ gata (497/497 teste), **aștept aprobarea ta pentru push** |
 | RF-05 | harta cu hexagoane, personaje, mișcare | ⬜ |
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ |
@@ -148,6 +148,50 @@ Reviewer-ul a acceptat, fără nicio rezervă — a doua livrare la rând (după
 
 ### 15-09 — PUSH: RF-03a pe GitHub
 Ai aprobat. **Commit `dee2e08`**, 10 fișiere, +1033 linii. Urcat pe `INFINITIMAX/RPGfactory`.
+
+### 15-09 — Decizie: RF-04 acum, Pi (RF-03b) mai târziu
+Ai ales să sărim la primul ecran vizibil, nu la Pi. Ai confirmat și că noul ecran înlocuiește pagina principală de-acum — jocul vechi (harta cu hexagoane, pe cod vechi T-01…T-19) rămâne în cod, doar redenumit, nu se șterge.
+
+### 15-09 — RF-04: pornit
+Primul ecran care arată date reale, nu machetă. Un tabel cu profilurile de agenți, un tabel cu sesiunile observate (din RF-03a — sesiunile tale Claude Code reale, chiar acum), și un panou de detalii unde poți aproba un profil sau lega o sesiune de el.
+
+**Ce NU arată încă, intenționat**: ierarhie (n-avem Pi), consum de tokeni (alt lot), task-uri (nu există încă acel model) — nu inventăm date care nu există.
+
+Am cerut explicit coder-ului să evite exact bug-ul de securitate găsit în audit (text din date puse direct în HTML, fără protecție) — de data asta se face corect de la început. Trimis la coder.
+
+### 15-09 — RF-04: livrat de coder, verificat VIZUAL în browser — găsit un bug real
+Codul arăta bine citit, dar de data asta nu m-am oprit la citit — am pornit o instanță separată de test (fără să ating serverul tău de pe 5311), am pus date reale prin API, și chiar am deschis pagina și am dat clic prin ea, cum ar face-o un utilizator.
+
+Funcționează frumos: tabele, selecție, aprobare. Dar am găsit ceva ce nu se vedea din cod: **panoul din dreapta (inspectorul) se reface complet la fiecare 3 secunde**, chiar dacă nimic nu s-a schimbat — dacă ai un meniu deschis (ex. alegi un profil de asociat) exact când vine sondarea din fundal, meniul dispare de sub tine. Tabelele nu au problema asta (sunt construite corect, doar inspectorul).
+
+Trimis înapoi la coder, cu explicația exactă și ce trebuie schimbat.
+
+### 15-09 — RF-04-b: reparat, confirmat CHIAR ÎN BROWSER
+Coder-ul a reparat: acum inspectorul se reface doar când chiar s-a schimbat ceva (alt element selectat, sau date noi pentru cel curent), nu la fiecare sondare.
+
+Am verificat din nou, la fel ca prima dată — pornit instanța de test separată, deschis pagina, deschis meniul de asociere, ales un profil, **așteptat 5 secunde** (peste un ciclu de sondare) — meniul a rămas exact cum l-am lăsat. Apoi am apăsat efectiv „Asociază" — a mers, tabelul și panoul s-au actualizat corect, fără nicio eroare în consolă.
+
+De data asta n-am doar citit codul — am și folosit ecranul, ca un utilizator.
+
+### 15-09 — RF-04: testele au găsit 2 probleme, dintre care una reală de producție, ascunsă
+Am rulat toată suita — 3 eșecuri:
+
+1. **Regresie de la redenumire**: testul vechi `D9` (server) și tot fișierul de teste al jocului vechi (~150 de teste) referă încă `app.js` în loc de `game.js` — normal, o consecință directă a mutării de la RF-04, se repară ușor la tester.
+2. **Bug real, ascuns, găsit prin reproducere manuală**: când un profil selectat dispare din date (ex. a fost șters), codul care „curăță" selecția crapă la mijloc — încearcă să citească o proprietate a unui lucru pe care tocmai l-a golit. Eroarea e înghițită tăcut, iar tot ecranul rămâne blocat cu date vechi în acel moment, fără să afli de ce. Nu s-a văzut din citirea codului — l-am găsit scriind un script mic care reproduce exact pașii unui utilizator (selectează, apoi dispare elementul).
+
+Trimis ambele corecții (una la coder pentru bug-ul real, una la tester pentru referințele vechi) — lansate în paralel, ating fișiere diferite.
+
+### 15-09 — RF-04: ambele reparate, confirmat CHIAR CU SCRIPTUL MEU de reproducere
+Coder-ul a reparat blocajul (verificat de mine, rulând din nou exact scriptul care a găsit bug-ul — de data asta inspectorul chiar se golește). Tester-ul a reparat referințele la vechiul `app.js`.
+
+**Rulare finală: 497 teste, toate trec.** Trimis la reviewer.
+
+### 15-09 — RF-04: ÎNCHIS
+Reviewer-ul a acceptat, fără nimic de retrimis — a confirmat el însuși, citind tot codul: nu mai există `innerHTML` cu date interpolate nicăieri, cache-ul inspectorului funcționează corect în toate cazurile de graniță, redenumirea jocului vechi nu a lăsat fișiere moarte, iar cele două bug-uri (unul găsit vizual, unul găsit prin reproducere) sunt reparate complet, fără alte instanțe ascunse.
+
+**Ai acum, chiar dacă nu ai deschis încă pagina**: un ecran real cu profilurile tale de agenți și sesiunile Claude Code observate live (de la RF-03a), unde poți aproba un profil sau lega o sesiune de el, direct din pagină.
+
+**Nu am urcat încă pe GitHub.** Aștept aprobarea ta.
 
 ### 15-09 — PUSH: RF-02b pe GitHub
 Ai aprobat. **Commit `c1f215b`**, 13 fișiere, +2249 linii. Urcat pe `INFINITIMAX/RPGfactory`.

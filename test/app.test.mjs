@@ -74,7 +74,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const APP_JS_PATH = path.join(__dirname, '..', 'public', 'app.js');
+const APP_JS_PATH = path.join(__dirname, '..', 'public', 'game.js');
 const APP_SOURCE = fs.readFileSync(APP_JS_PATH, 'utf8');
 const MERGE_STATE_JS_PATH = path.join(__dirname, '..', 'public', 'merge-state.js');
 const MERGE_STATE_SOURCE = fs.readFileSync(MERGE_STATE_JS_PATH, 'utf8');

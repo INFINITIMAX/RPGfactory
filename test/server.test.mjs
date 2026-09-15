@@ -120,10 +120,10 @@ test('D2: srv.address.address e loopback (127.0.0.1), nu 0.0.0.0/:: (wildcard)',
 // D9 — query string nu mai ajunge în calea de fișier / rutare
 // =============================================================================
 
-test('D9: GET /app.js?v=1 -> 200, același conținut ca GET /app.js', async () => {
+test('D9: GET /game.js?v=1 -> 200, același conținut ca GET /game.js', async () => {
   const [withQuery, plain] = await Promise.all([
-    fetch(`${baseUrl()}/app.js?v=1`),
-    fetch(`${baseUrl()}/app.js`),
+    fetch(`${baseUrl()}/game.js?v=1`),
+    fetch(`${baseUrl()}/game.js`),
   ]);
   assert.equal(plain.status, 200);
   assert.equal(withQuery.status, 200, 'query string-ul nu trebuie să rupă rezolvarea fișierului static (D9)');

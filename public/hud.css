@@ -1,0 +1,180 @@
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: monospace;
+  background: #111;
+  color: #eee;
+}
+
+#topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+}
+
+#topbar h1 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.connection {
+  padding: 4px 10px;
+  border: 1px solid #333;
+  font-size: 12px;
+}
+
+.connection-connected {
+  color: #4c9f4c;
+}
+
+.connection-retrying {
+  color: #e0a838;
+}
+
+#main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 16px;
+  margin-right: 340px; /* loc pentru inspectorul fix din dreapta */
+}
+
+section h2 {
+  font-size: 14px;
+  color: #ccc;
+  margin: 0 0 8px 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+}
+
+th, td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid #333;
+  font-size: 13px;
+}
+
+th {
+  color: #999;
+  font-weight: normal;
+}
+
+tbody tr {
+  cursor: pointer;
+}
+
+tbody tr:hover {
+  background: #1e1e1e;
+}
+
+tbody tr.selected {
+  background: #2a2a2a;
+  outline: 1px solid #4c9f4c;
+}
+
+#create-profile-form {
+  padding: 10px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+}
+
+#create-profile-form h3 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: #ccc;
+}
+
+#create-profile-form label {
+  display: inline-block;
+  margin-right: 10px;
+  font-size: 12px;
+}
+
+#create-profile-form input {
+  font-family: monospace;
+  background: #111;
+  color: #eee;
+  border: 1px solid #333;
+  padding: 3px 6px;
+}
+
+#create-profile-form button {
+  font-family: monospace;
+  background: #2a5fae;
+  color: #fff;
+  border: none;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.action-error {
+  color: #e05555;
+  margin-left: 10px;
+}
+
+#inspector {
+  position: fixed;
+  top: 60px;
+  right: 14px;
+  bottom: 14px;
+  width: 300px;
+  padding: 12px 14px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  overflow-y: auto;
+}
+
+#inspector.hidden {
+  display: none;
+}
+
+#inspector h2 {
+  font-size: 14px;
+  color: #ccc;
+  margin: 0 0 10px 0;
+}
+
+#inspector .field {
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+#inspector .field .label {
+  color: #6b5940;
+  display: inline-block;
+  width: 110px;
+}
+
+#inspector .actions {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#inspector button {
+  font-family: monospace;
+  background: #2a5fae;
+  color: #fff;
+  border: none;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+#inspector select {
+  font-family: monospace;
+  background: #111;
+  color: #eee;
+  border: 1px solid #333;
+  padding: 3px 6px;
+}

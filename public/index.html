@@ -2,16 +2,58 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>agent-map</title>
-<link rel="stylesheet" href="style.css">
+<title>RPGfactory — consolă</title>
+<link rel="stylesheet" href="hud.css">
 </head>
 <body>
-  <h3 id="title">agent-map</h3>
-  <canvas id="canvas"></canvas>
-  <div id="details" class="details hidden"></div>
-  <div id="hidden-panel"></div>
-  <script src="/merge-state.js"></script>
-  <script src="/zones.js"></script>
-  <script src="app.js"></script>
+  <header id="topbar">
+    <h1>RPGfactory</h1>
+    <div id="connection-indicator" class="connection connection-connected">conectat</div>
+  </header>
+
+  <main id="main">
+    <section id="profiles-section">
+      <h2>Profiluri (ierarhie necunoscută)</h2>
+      <table id="profiles-table">
+        <thead>
+          <tr>
+            <th>nume</th>
+            <th>specializare</th>
+            <th>stare aprobare</th>
+            <th>eligibil</th>
+            <th>ultim proiect</th>
+          </tr>
+        </thead>
+        <tbody id="profiles-tbody"></tbody>
+      </table>
+
+      <form id="create-profile-form">
+        <h3>Profil nou</h3>
+        <label>nume <input type="text" id="create-profile-name" required></label>
+        <label>specializare <input type="text" id="create-profile-specialization"></label>
+        <button type="submit">Creează profil</button>
+        <span id="create-profile-error" class="action-error"></span>
+      </form>
+    </section>
+
+    <section id="runs-section">
+      <h2>Sesiuni observate</h2>
+      <table id="runs-table">
+        <thead>
+          <tr>
+            <th>harness</th>
+            <th>proiect</th>
+            <th>stare</th>
+            <th>profil asociat</th>
+          </tr>
+        </thead>
+        <tbody id="runs-tbody"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <aside id="inspector" class="hidden"></aside>
+
+  <script src="hud.js"></script>
 </body>
 </html>
