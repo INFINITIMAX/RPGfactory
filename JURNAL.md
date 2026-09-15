@@ -17,7 +17,7 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-00 | pune ordine în documente | ✅ gata |
 | RF-01 | face serverul sigur și testabil | ✅ gata, **urcat pe GitHub** |
 | RF-02a | baza de date: structura și migrațiile | ✅ gata (297/297 teste), **urcat pe GitHub** |
-| RF-02b | profilurile agenților, salvate permanent, cu API | ✅ gata (370/370 teste), **aștept aprobarea ta pentru push** |
+| RF-02b | profilurile agenților, salvate permanent, cu API | ✅ gata (370/370 teste), **urcat pe GitHub** |
 | RF-02c | legarea sesiunilor reale de profiluri | ⬜ urmează |
 | RF-03 | citirea reală din Pi și Claude Code | ⬜ |
 | RF-04 | **primul ecran vizibil**: tabele, arbore, inspector | ⬜ |
@@ -25,7 +25,7 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ |
 
-**Pe GitHub:** ultimul urcat e `2e004ec` (RF-02a).
+**Pe GitHub:** ultimul urcat e `c1f215b` (RF-02b).
 
 **Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. Serverul tău de pe portul 5311 (PID 54236) rulează în continuare, n-a fost oprit niciodată.
 
@@ -124,6 +124,9 @@ Reviewer-ul a acceptat tot lotul, fără nimic de respins. A confirmat, verific�
 Acum poți: crea un profil de agent, îl poți aproba, îi poți schimba specializarea sau eligibilitatea (în siguranță — dacă doi oameni/agenți încearcă să-l schimbe simultan, al doilea primește un răspuns clar de conflict, nu suprascrie tăcut primul), și poți vedea toată istoria lui. Tot prin API — nu se vede încă nimic pe ecran (asta e RF-04).
 
 **Nu am urcat încă pe GitHub.** Aștept aprobarea ta.
+
+### 15-09 — PUSH: RF-02b pe GitHub
+Ai aprobat. **Commit `c1f215b`**, 13 fișiere, +2249 linii. Urcat pe `INFINITIMAX/RPGfactory`.
 
 ### 15-09, seara — SESIUNEA S-A ÎNCHEIAT AICI
 
