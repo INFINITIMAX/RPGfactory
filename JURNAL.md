@@ -19,14 +19,14 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-02a | baza de date: structura și migrațiile | ✅ gata (297/297 teste), **urcat pe GitHub** |
 | RF-02b | profilurile agenților, salvate permanent, cu API | ✅ gata (370/370 teste), **urcat pe GitHub** |
 | RF-02c | sesiuni observate, asociere la profiluri | ✅ gata (442/442 teste), **urcat pe GitHub** |
-| RF-03a | citirea reală din Claude Code | ✅ gata (459/459 teste), **aștept aprobarea ta pentru push** |
+| RF-03a | citirea reală din Claude Code | ✅ gata (459/459 teste), **urcat pe GitHub** |
 | RF-03b | citirea reală din Pi + reporter | ⬜ urmează |
 | RF-04 | **primul ecran vizibil**: tabele, arbore, inspector | ⬜ |
 | RF-05 | harta cu hexagoane, personaje, mișcare | ⬜ |
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ |
 
-**Pe GitHub:** ultimul urcat e `631ad02` (RF-02c) — RF-02 complet.
+**Pe GitHub:** ultimul urcat e `dee2e08` (RF-03a).
 
 **Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. Serverul tău de pe portul 5311 (PID 54236) rulează în continuare, n-a fost oprit niciodată.
 
@@ -146,7 +146,8 @@ Reviewer-ul a acceptat, fără nicio rezervă — a doua livrare la rând (după
 
 **Ce s-a schimbat, în practică**: serverul citește acum, singur, la fiecare 5 secunde, sesiunile tale Claude Code reale de pe disc și le ține evidența în baza nouă — inclusiv pe cele oprite (înainte, codul vechi le arunca pur și simplu, ca și cum n-ar fi existat). Nimic nu se leagă automat de un profil — rămâne decizia ta, explicit.
 
-**Nu am urcat încă pe GitHub.** Aștept aprobarea ta.
+### 15-09 — PUSH: RF-03a pe GitHub
+Ai aprobat. **Commit `dee2e08`**, 10 fișiere, +1033 linii. Urcat pe `INFINITIMAX/RPGfactory`.
 
 ### 15-09 — PUSH: RF-02b pe GitHub
 Ai aprobat. **Commit `c1f215b`**, 13 fișiere, +2249 linii. Urcat pe `INFINITIMAX/RPGfactory`.
