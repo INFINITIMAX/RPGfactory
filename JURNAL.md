@@ -18,14 +18,14 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-01 | face serverul sigur și testabil | ✅ gata, **urcat pe GitHub** |
 | RF-02a | baza de date: structura și migrațiile | ✅ gata (297/297 teste), **urcat pe GitHub** |
 | RF-02b | profilurile agenților, salvate permanent, cu API | ✅ gata (370/370 teste), **urcat pe GitHub** |
-| RF-02c | sesiuni observate, asociere la profiluri | ✅ gata (442/442 teste), **aștept aprobarea ta pentru push** |
+| RF-02c | sesiuni observate, asociere la profiluri | ✅ gata (442/442 teste), **urcat pe GitHub** |
 | RF-03 | citirea reală din Pi și Claude Code | ⬜ |
 | RF-04 | **primul ecran vizibil**: tabele, arbore, inspector | ⬜ |
 | RF-05 | harta cu hexagoane, personaje, mișcare | ⬜ |
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ |
 
-**Pe GitHub:** ultimul urcat e `c1f215b` (RF-02b).
+**Pe GitHub:** ultimul urcat e `631ad02` (RF-02c) — RF-02 complet.
 
 **Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. Serverul tău de pe portul 5311 (PID 54236) rulează în continuare, n-a fost oprit niciodată.
 
@@ -123,7 +123,10 @@ Reviewer-ul a acceptat tot lotul, fără nimic de respins. A confirmat, verific�
 
 Acum poți: crea un profil de agent, îl poți aproba, îi poți schimba specializarea sau eligibilitatea (în siguranță — dacă doi oameni/agenți încearcă să-l schimbe simultan, al doilea primește un răspuns clar de conflict, nu suprascrie tăcut primul), și poți vedea toată istoria lui. Tot prin API — nu se vede încă nimic pe ecran (asta e RF-04).
 
-**Nu am urcat încă pe GitHub.** Aștept aprobarea ta.
+### 15-09 — PUSH: RF-02c pe GitHub — RF-02 complet, de la un capăt la altul
+Ai aprobat. **Commit `631ad02`**, 11 fișiere, +2142 linii. Urcat pe `INFINITIMAX/RPGfactory`.
+
+Cu asta, tot RF-02 (fundația de date: baza SQLite, profiluri, sesiuni) e pe GitHub, de la RF-02a la RF-02c.
 
 ### 15-09 — PUSH: RF-02b pe GitHub
 Ai aprobat. **Commit `c1f215b`**, 13 fișiere, +2249 linii. Urcat pe `INFINITIMAX/RPGfactory`.
