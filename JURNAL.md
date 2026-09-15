@@ -20,15 +20,35 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-02b | profilurile agenților, salvate permanent, cu API | ✅ gata (370/370 teste), **urcat pe GitHub** |
 | RF-02c | sesiuni observate, asociere la profiluri | ✅ gata (442/442 teste), **urcat pe GitHub** |
 | RF-03a | citirea reală din Claude Code | ✅ gata (459/459 teste), **urcat pe GitHub** |
-| RF-03b | citirea reală din Pi + reporter | ⬜ urmează |
+| RF-03b | citirea reală din Pi + reporter | ⬜ **mutat mai jos** — Lucian a ales harta întâi |
 | RF-04 | **primul ecran vizibil**: tabele, inspector | ✅ gata (497/497 teste), **urcat pe GitHub** |
-| RF-05 | harta cu hexagoane, personaje, mișcare | ⬜ |
+| RF-05 | harta cu hexagoane, personaje, mișcare | 🔶 **în curs** — RF-05a ✅ gata (514/514 teste), RF-05b/c urmează |
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ |
 
 **Pe GitHub:** ultimul urcat e `dee2e08` (RF-03a).
 
 **Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. **Serverul tău de pe portul 5311 nu mai rulează** (verificat direct — port liber, PID vechi 54236 dispărut; nu l-am oprit eu, s-a oprit separat, în afara acestei sesiuni). Pornește-l din nou ca să vezi noul ecran RF-04.
+
+---
+
+### 15-09 — Decizie: harta (RF-05) acum, Pi (RF-03b) mult mai jos pe listă
+**Lucian.** După ce am întrebat "RF-03b (Pi) sau RF-05 (harta)?", a răspuns clar: harta întâi, Pi se lasă mult mai jos pe listă.
+
+RF-05 e mare — layout hexagonal, randare, personaje care se mișcă — așa că l-am împărțit în trei bucăți verificabile separat, ca la RF-02/RF-03, și am confirmat cu Lucian înainte să scriu vreun brief:
+- **RF-05a** — doar algoritmul de așezare pe hexagoane (cine stă unde, cum crește o zonă, memorie ca zonele să nu sară pe hartă). Fără nimic desenat, doar teste. Adaptat conceptual din bot-crossing (`src/world/plots.js`), care rezolvă exact problema asta pentru randare 3D — noi luăm doar logica de așezare, nu 3D-ul.
+- **RF-05b** — desenul static pe Canvas 2D: hexagoanele, zonele, sloturile fiecărui specialist. Fără animație încă.
+- **RF-05c** — personajele: apar, se mișcă, se animă, se fac mai mari după cât au lucrat recent.
+
+Zonele se grupează pe `agent_profiles.last_project` (câmp deja existent în baza de date de la RF-02b) — fiecare proiect distinct e o zonă pe hartă, mărimea zonei = câți agenți activi are.
+
+### 15-09 — RF-05a: brief trimis coder-ului
+Task: funcție pură de alocare a celulelor hexagonale, cu memorie (o zonă care a crescut nu sare la mijlocul hărții doar pentru că a apărut alt proiect). Vezi `docs/handoff/RF-05a-coder.md`.
+
+### 15-09 — RF-05a: închis, prima rulare curată
+Coder-ul a livrat `hex-layout.js` — am citit codul direct (nu doar raportul) și am confirmat că a portat corect logica din bot-crossing și a scos complet celula rezervată de "navă" pe care sursa o folosea. Testerul a scris 17 teste care verifică proprietăți reale (o zonă care crește își păstrează exact celulele vechi, una care se micșorează renunță la ultimele, harta rămâne mereu un singur teritoriu conex). Am rulat eu, cu `npm test`: **514/514 teste, 0 eșecuri** — nicio corecție a fost nevoie, prima livrare a fost bună de la coder și de la tester deopotrivă. Reviewer-ul a confirmat: ACCEPT pentru amândouă.
+
+**Ce înseamnă practic**: acum știm exact ce celulă hexagonală primește fiecare proiect (grupat pe `last_project`) și cum crește/se micșorează o zonă fără să sară pe hartă. Nimic nu se vede încă — asta e RF-05b, desenul propriu-zis pe Canvas.
 
 ---
 
