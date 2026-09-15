@@ -26,7 +26,7 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ |
 
-**Pe GitHub:** ultimul urcat e `04f5bf7` (RF-05b).
+**Pe GitHub:** ultimul urcat e `8001312` (RF-05c — RF-05 complet).
 
 **Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. **Serverul tău de pe portul 5311 nu mai rulează** (verificat direct — port liber, PID vechi 54236 dispărut; nu l-am oprit eu, s-a oprit separat, în afara acestei sesiuni). Pornește-l din nou ca să vezi noul ecran RF-04.
 
