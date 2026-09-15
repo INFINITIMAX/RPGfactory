@@ -16,7 +16,8 @@ const { createStateStore } = require('./state');
 const { createProfilesStore } = require('./profiles');
 const { createRunsStore } = require('./runs');
 const { createLayoutStore } = require('./layout');
-const { groupProjects, pickAccent } = require('./world');
+const { createSlotStore } = require('./slot-store');
+const { groupProjects, pickAccent, profilesByProject, assignSlots } = require('./world');
 const { allocateCells } = require('./hex-layout');
 const { readJsonBody } = require('./body');
 const { buildAllowedOrigins, checkOrigin, resolveStaticPath } = require('./server/http-guards');
@@ -186,6 +187,10 @@ function createServer(options = {}) {
   // de închidere. Refolosește `options.dbPath`/`options.migrationsDir`, NU o
   // cale de configurare separată.
   const layoutStore = createLayoutStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
+  // RF-05c: handle SQLite propriu, independent de celelalte store-uri —
+  // deschis lazy la fel (vezi slot-store.js), fără să partajeze ownership-ul
+  // de închidere. Refolosește `options.dbPath`/`options.migrationsDir`.
+  const slotStore = createSlotStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
 
   // Setul de origini permise nu se cunoaște până nu ascultă efectiv
   // serverul (portul efemer 0 devine un port real abia atunci). Se
@@ -557,6 +562,9 @@ function createServer(options = {}) {
     // RF-05b: /api/world — zonele hărții, recalculate de fiecare dată (nu se
     // face cache separat, nu invalidare manuală). Doar GET — nicio mutație
     // expusă pentru layout (vezi layout.js, de ce nu are CAS).
+    // RF-05c: extinde ACELAȘI răspuns cu `pawns` — postul persistent al
+    // fiecărui specialist + dacă lucrează efectiv acum (vezi slot-store.js,
+    // de ce nu are CAS, aceeași motivație ca layout.js).
     if (pathname === '/api/world') {
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.writeHead(405, { Allow: 'GET, HEAD' });
@@ -575,8 +583,47 @@ function createServer(options = {}) {
         cells: laid.get(id) || [],
         accent: pickAccent(id),
       }));
+
+      // RF-05c: posturile persistente + pawn-uri. Calculate DUPĂ zone, ca
+      // fiecare proiect să-și cunoască deja `cells.length` (capacitatea =
+      // cells.length * 7, geometria din RF-05b).
+      const profileNames = new Map(profiles.map((p) => [p.id, p.name]));
+      // 'running' = lucru confirmat acum; 'queued'/'paused' NU (în așteptare,
+      // nu execuție efectivă).
+      const workingIds = new Set(
+        runsStore
+          .listRuns()
+          .filter((run) => run.lifecycle === 'running')
+          .map((run) => run.profile_id)
+      );
+      const projectProfiles = profilesByProject(profiles);
+      const pawns = [];
+      for (const zone of zones) {
+        const capacity = zone.cells.length * 7;
+        const previousForProject = slotStore.getSlots().get(zone.project) || new Map();
+        const assignment = assignSlots(
+          projectProfiles.get(zone.project) || [],
+          previousForProject,
+          capacity
+        );
+        slotStore.saveSlots(zone.project, assignment);
+        for (const [profileId, slotIndex] of assignment) {
+          pawns.push({
+            profileId,
+            name: profileNames.get(profileId) || profileId,
+            project: zone.project,
+            slotIndex,
+            working: workingIds.has(profileId),
+            // RF-06 (netratat aici): mărimea reală va veni din usage propriu
+            // recent. Fix la 1 în acest lot — spec.md §7 cere explicit ca
+            // LIPSA de date de consum să nu producă mărime maximă.
+            sizeFactor: 1,
+          });
+        }
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ zones }));
+      res.end(JSON.stringify({ zones, pawns }));
       return;
     }
 
@@ -644,6 +691,9 @@ function createServer(options = {}) {
   // RF-05b: la fel, pentru `layoutStore` — handle SQLite separat, ownership
   // separat la închidere.
   server.closeLayoutStore = layoutStore.close;
+  // RF-05c: la fel, pentru `slotStore` — handle SQLite separat, ownership
+  // separat la închidere.
+  server.closeSlotStore = slotStore.close;
 
   // RF-03a: sondarea periodică a sesiunilor Claude Code. `createServer` NU
   // pornește timer-ul la construcție (D1) — un `setInterval` pornit aici ar
@@ -695,6 +745,8 @@ function createServer(options = {}) {
     // RF-05b: extinde ACELAȘI wrapper (nu creează altul paralel) — la orice
     // închidere a serverului, se închide și `layoutStore`.
     layoutStore.close();
+    // RF-05c: la fel, pentru `slotStore`.
+    slotStore.close();
     if (callback) callback(err);
   });
 
@@ -725,8 +777,8 @@ function startServer(options = {}) {
         server,
         address,
         port: address.port,
-        // RF-02b-c/RF-02c/RF-05b: `server.close()` închide automat
-        // profilesStore, runsStore ȘI layoutStore (vezi wrapper-ul din
+        // RF-02b-c/RF-02c/RF-05b/RF-05c: `server.close()` închide automat
+        // profilesStore, runsStore, layoutStore ȘI slotStore (vezi wrapper-ul din
         // `createServer`) — HTTP-ul se oprește întâi
         // (așteaptă cererile active, comportamentul implicit al
         // http.Server#close()), abia apoi se închide baza, deci nu există

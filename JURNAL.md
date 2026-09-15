@@ -22,7 +22,7 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-03a | citirea reală din Claude Code | ✅ gata (459/459 teste), **urcat pe GitHub** |
 | RF-03b | citirea reală din Pi + reporter | ⬜ **mutat mai jos** — Lucian a ales harta întâi |
 | RF-04 | **primul ecran vizibil**: tabele, inspector | ✅ gata (497/497 teste), **urcat pe GitHub** |
-| RF-05 | harta cu hexagoane, personaje, mișcare | 🔶 **în curs** — **harta se vede acum** (RF-05a+RF-05b gata, 536/536 teste), personajele (RF-05c) urmează |
+| RF-05 | harta cu hexagoane, personaje, mișcare | ✅ **gata complet** — harta, zonele și personajele se văd toate acum (567/567 teste) |
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ |
 
@@ -59,6 +59,17 @@ Codul de bază (baza de date, endpoint, teste) a fost curat de la prima livrare 
 Niciun test automat nu putea prinde asta (problema apare doar când ambele fișiere sunt încărcate împreună, într-o pagină reală). Exact de-asta verific mereu vizual, nu doar cu teste. Am trimis o corecție scurtă coder-ului (izolarea codului nou într-un „pachet" separat, ca să nu mai calce pe fișierul vechi), am reverificat eu însumi în browser, pe o instanță nouă — acum harta se vede corect: fiecare proiect are un hexagon colorat diferit, cu poziții marcate pentru specialiști și numele proiectului scris lângă el.
 
 **RF-05b închis.** Reviewer: ACCEPT. 536/536 teste, de două ori (înainte și după corecție).
+
+### 15-09 — RF-05c: brief trimis coder-ului
+Ultima bucată din harta (RF-05). Fiecare specialist primește un post fix pe hartă, care nu sare când apare/pleacă un coleg — și apare ca un simbol simplu, care se animă discret doar când chiar lucrează (nu doar există). Scop redus deliberat, scris clar în brief: fără mărime reală după consum (nu avem încă acele date — RF-06), fără personaje desenate cu sprite-uri (estetica fină rămâne backlog, cum spune `spec.md`), fără mișcare. Vezi `docs/handoff/RF-05c-coder.md`.
+
+### 15-09 — RF-05c: 6 teste picau — nu din vina codului, ci a testelor
+Codul de bază era corect de la prima livrare (am verificat eu direct în cod). Dar când am rulat testele, 6 din 47 picau: 5 pentru că baza de date chiar verifică acum că un „post" aparține unui profil care există cu adevărat (o regulă bună, pe care am cerut-o eu în temă, dar am uitat s-o semnalez clar testerului), iar testele foloseau nume inventate în loc de profiluri reale. Al șaselea era un test vechi, de la runda precedentă, care nu fusese actualizat când am adăugat un câmp nou în răspunsul serverului. Am trimis o corecție scurtă, am rerulat — 567/567 teste, tot proiectul.
+
+### 15-09 — RF-05c: verificare vizuală — harta cu personaje, funcțională
+Am deschis din nou pagina într-un browser real, cu un profil căruia i-am atașat o sesiune reală „în lucru" — personajul lui a apărut corect, la locul lui pe hartă, marcat diferit față de ceilalți (care stau, nu lucrează). Nu am putut vedea chiar pulsația animată în timp real — instrumentul de testare ține fereastra „ascunsă" tehnic, iar browserul oprește orice animație pentru ferestre ascunse, ca să economisească baterie — dar am citit codul care face asta și e corect. O să se vadă normal când deschizi tu pagina în browserul tău obișnuit.
+
+**RF-05c închis. RF-05 (harta) e complet închis** — toate cele trei bucăți (algoritm, desen+memorie, personaje+animație) sunt gata. Reviewer: ACCEPT. 567/567 teste.
 
 ---
 

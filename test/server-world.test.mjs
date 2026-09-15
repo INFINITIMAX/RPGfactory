@@ -1,5 +1,6 @@
 // Teste HTTP pentru GET /api/world (RF-05b), server real pe port efemer —
 // tipar ca test/server-profiles.test.mjs/test/server-runs.test.mjs.
+// RF-05c extinde acest fișier cu teste pentru câmpul `pawns` (§2.4 din brief).
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -75,14 +76,33 @@ async function createProfileWithProject(name, lastProject) {
   return patched.json;
 }
 
+async function observeRun(nativeId, lifecycle) {
+  const { status, json } = await req('POST', '/api/runs/observe', {
+    sourceHarness: 'pi',
+    nativeId,
+    lifecycle,
+  });
+  assert.equal(status, 201, `observeRun ${nativeId} trebuia să reușească`);
+  return json;
+}
+
+async function associateRun(run, profile) {
+  const { status, json } = await req('POST', `/api/runs/${run.id}/associate`, {
+    profileId: profile.id,
+    expectedRevision: run.revision,
+  });
+  assert.equal(status, 200, `asocierea run-ului ${run.id} cu profilul ${profile.id} trebuia să reușească`);
+  return json;
+}
+
 // =========================================================================
-// (13) server fără niciun profil -> 200, { zones: [] }
+// (13) server fără niciun profil -> 200, { zones: [], pawns: [] }
 // =========================================================================
 
-test('GET /api/world: fără niciun profil în bază -> 200, { zones: [] }', async () => {
+test('GET /api/world: fără niciun profil în bază -> 200, { zones: [], pawns: [] }', async () => {
   const { status, json } = await req('GET', '/api/world');
   assert.equal(status, 200);
-  assert.deepEqual(json, { zones: [] });
+  assert.deepEqual(json, { zones: [], pawns: [] });
 });
 
 // =========================================================================
@@ -194,4 +214,106 @@ test('GET /api/world: Origin prezent dar greșit (alt port) -> 403', async () =>
     Origin: `http://127.0.0.1:${srv.port + 1}`,
   });
   assert.equal(status, 403);
+});
+
+// =========================================================================
+// RF-05c — câmpul `pawns` (§2.4 din brief)
+// =========================================================================
+
+// (19) profil cu last_project populat, fără nicio sesiune -> apare în pawns,
+// working: false.
+test('GET /api/world: profil cu proiect dar fără run asociat -> apare în pawns cu working: false', async () => {
+  const profile = await createProfileWithProject('fara-run', 'proiect-pawns-1');
+  const { status, json } = await req('GET', '/api/world');
+  assert.equal(status, 200);
+  const pawn = json.pawns.find((p) => p.profileId === profile.id);
+  assert.ok(pawn, 'profilul trebuia să apară în pawns');
+  assert.equal(pawn.working, false);
+});
+
+// (20) profil cu run 'running' -> working: true.
+test('GET /api/world: profil cu run lifecycle running -> pawn.working === true', async () => {
+  const profile = await createProfileWithProject('lucreaza', 'proiect-pawns-2');
+  const run = await observeRun('pawn-running', 'running');
+  await associateRun(run, profile);
+
+  const { status, json } = await req('GET', '/api/world');
+  assert.equal(status, 200);
+  const pawn = json.pawns.find((p) => p.profileId === profile.id);
+  assert.ok(pawn, 'profilul trebuia să apară în pawns');
+  assert.equal(pawn.working, true);
+});
+
+// (21) profil cu run 'queued' sau 'paused' -> working: false (NU running).
+test('GET /api/world: profil cu run lifecycle queued -> pawn.working === false (nu running)', async () => {
+  const profile = await createProfileWithProject('asteapta', 'proiect-pawns-3');
+  const run = await observeRun('pawn-queued', 'queued');
+  await associateRun(run, profile);
+
+  const { json } = await req('GET', '/api/world');
+  const pawn = json.pawns.find((p) => p.profileId === profile.id);
+  assert.ok(pawn);
+  assert.equal(pawn.working, false, 'lifecycle queued nu trebuie tratat ca working');
+});
+
+test('GET /api/world: profil cu run lifecycle paused -> pawn.working === false (nu running)', async () => {
+  const profile = await createProfileWithProject('pauzat', 'proiect-pawns-4');
+  const run = await observeRun('pawn-paused', 'paused');
+  await associateRun(run, profile);
+
+  const { json } = await req('GET', '/api/world');
+  const pawn = json.pawns.find((p) => p.profileId === profile.id);
+  assert.ok(pawn);
+  assert.equal(pawn.working, false, 'lifecycle paused nu trebuie tratat ca working');
+});
+
+// (22) fiecare pawn are câmpurile așteptate, cu tipurile/valorile corecte.
+test('GET /api/world: fiecare pawn are profileId/name/project/slotIndex/working/sizeFactor corecte', async () => {
+  const profile = await createProfileWithProject('complet', 'proiect-pawns-5');
+  const { json } = await req('GET', '/api/world');
+  const pawn = json.pawns.find((p) => p.profileId === profile.id);
+  assert.ok(pawn);
+  assert.equal(pawn.profileId, profile.id);
+  assert.equal(pawn.name, 'complet');
+  assert.equal(pawn.project, 'proiect-pawns-5');
+  assert.equal(typeof pawn.slotIndex, 'number');
+  assert.equal(typeof pawn.working, 'boolean');
+  assert.equal(pawn.sizeFactor, 1, 'sizeFactor trebuie să fie exact 1 în acest lot');
+});
+
+// (23) persistență între cereri: același profil păstrează exact același
+// slotIndex la a doua cerere, fără schimbări.
+test('GET /api/world: două cereri succesive fără schimbări -> același profil păstrează exact același slotIndex', async () => {
+  const profile = await createProfileWithProject('memorie-slot', 'proiect-pawns-6');
+
+  const first = await req('GET', '/api/world');
+  const second = await req('GET', '/api/world');
+
+  const firstPawn = first.json.pawns.find((p) => p.profileId === profile.id);
+  const secondPawn = second.json.pawns.find((p) => p.profileId === profile.id);
+  assert.ok(firstPawn && secondPawn);
+  assert.equal(secondPawn.slotIndex, firstPawn.slotIndex,
+    'slotIndex trebuie să rămână identic între cereri succesive (memorie reală, nu recalculare de la zero)');
+});
+
+// (24) profil fără last_project -> NU apare deloc în pawns.
+test('GET /api/world: profil fără last_project -> NU apare în pawns', async () => {
+  const { json: created } = await req('POST', '/api/profiles', { name: 'fara-proiect' });
+  const { json } = await req('GET', '/api/world');
+  assert.ok(!json.pawns.some((p) => p.profileId === created.id),
+    'un profil fără last_project nu trebuie să aibă niciun post pe hartă');
+});
+
+// (25) POST/DELETE pe /api/world -> tot 405, fără mutație pe sloturi.
+test('POST /api/world -> 405, fără mutație pe pawns (comportament neschimbat față de RF-05b)', async () => {
+  const profile = await createProfileWithProject('post-405', 'proiect-pawns-7');
+  const before = await req('GET', '/api/world');
+  const beforePawn = before.json.pawns.find((p) => p.profileId === profile.id);
+
+  const { status } = await req('POST', '/api/world', { project: 'nu-ar-trebui' });
+  assert.equal(status, 405);
+
+  const after = await req('GET', '/api/world');
+  const afterPawn = after.json.pawns.find((p) => p.profileId === profile.id);
+  assert.deepEqual(afterPawn, beforePawn, 'un POST respins cu 405 nu trebuie să schimbe vreun pawn existent');
 });

@@ -1,11 +1,16 @@
 // public/world.js — RF-05b: randare statică (Canvas 2D) a zonelor hărții,
-// din `/api/world`. Fără personaje, fără animație (RF-05c), fără
-// click/hover/selecție (lot separat, neaprobat încă).
+// din `/api/world`. RF-05c adaugă pawn-ii: un token simplu (cerc plin) per
+// post persistent, cu o pulsație minimă bazată pe timp pentru cei care
+// lucrează confirmat (`working: true`, nu queued/paused — vezi server.js).
+// Fără sprite/sheet de animație (estetica nu e înghețată, docs/PARITY.md
+// P49), fără mișcare (pawn-ul stă fix în slot), fără click/hover/selecție
+// (lot separat, neaprobat încă).
 //
-// ANTI-XSS: singurul text desenat e numele proiectului, prin `ctx.fillText`
-// — sigur prin natura API-ului Canvas (nu interpretează HTML). Nu se
-// creează niciun element DOM cu `innerHTML` din datele primite de la
-// `/api/world` (nu există altă listă/legendă în HTML în afara canvas-ului).
+// ANTI-XSS: tot textul desenat (numele proiectului, inițiala unui pawn) trece
+// prin `ctx.fillText` — sigur prin natura API-ului Canvas (nu interpretează
+// HTML). Nu se creează niciun element DOM cu `innerHTML` din datele primite
+// de la `/api/world` (nu există altă listă/legendă în HTML în afara
+// canvas-ului).
 //
 // Polling propriu, single-flight, cu request token — aceeași disciplină ca
 // `pollOnce()` din hud.js (RF-04), dar modul separat: nu reutilizează ciclul
@@ -33,6 +38,13 @@ const ctx = canvas.getContext('2d');
 // Ultimele zone primite — păstrate ca să putem redesena la resize fără să
 // mai așteptăm următorul ciclu de sondare.
 let zones = [];
+// RF-05c: ultimii pawn primiți — la fel, păstrați pentru resize.
+let pawns = [];
+
+// RF-05c: id-ul buclei `requestAnimationFrame` curente, sau null dacă bucla
+// nu rulează. Pornită/oprită doar la poll (nu la fiecare cadru) — vezi
+// `updateAnimationLoop()`.
+let rafId = null;
 
 // Token de cerere — aceeași gardă ca în hud.js: un răspuns care ajunge după
 // ce alt ciclu mai nou a pornit deja nu se mai aplică peste starea curentă.
@@ -125,7 +137,8 @@ function draw() {
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Sloturile — marcaje mici, goale (fără personaje, RF-05c).
+      // Sloturile goale — marcaje mici, desenate pentru toate cele 7 sloturi
+      // ale celulei; cele ocupate primesc pawn-ul lor peste, mai jos (`drawPawns`).
       for (const slot of slotsForCell(cx, cy)) {
         ctx.beginPath();
         ctx.arc(slot.x, slot.y, 3, 0, Math.PI * 2);
@@ -150,6 +163,93 @@ function draw() {
     ctx.fillStyle = '#f4f2ee';
     ctx.fillText(zone.project, labelX, labelY);
   }
+
+  drawPawns(originX, originY);
+}
+
+/** RF-05c: desenul pawn-ilor — un token simplu (cerc plin) per post
+ * persistent, pe poziția lui exactă din `slotsForCell`, cu o pulsație de
+ * rază pentru cei care lucrează confirmat (bazată pe timp real, nu pe
+ * numărul de cadre — desenul arată identic indiferent de rata de refresh). */
+function drawPawns(originX, originY) {
+  if (!pawns.length) return;
+  const nowMs = performance.now();
+  const reduced = prefersReducedMotion();
+
+  for (const pawn of pawns) {
+    const zone = zones.find((z) => z.project === pawn.project);
+    if (!zone) continue; // proiectul a dispărut de la ultimul poll
+
+    // Convenția slot_index = cellIndex * 7 + localSlotIndex (identică cu
+    // backend-ul, world.js/server.js).
+    const cellIndex = Math.floor(pawn.slotIndex / 7);
+    const localSlotIndex = pawn.slotIndex % 7;
+    const cell = zone.cells[cellIndex];
+    if (!cell) continue; // pawn „orfan" — caz limită tranzitoriu, sărit silențios
+
+    const { x: wx, y: wy } = hexToWorld(cell.q, cell.r, CELL);
+    const cx = originX + wx;
+    const cy = originY + wy;
+    const pos = slotsForCell(cx, cy)[localSlotIndex];
+    if (!pos) continue;
+
+    // sizeFactor vine fix 1 de la server în acest lot (RF-06 îl va face
+    // variabil din usage real) — folosit deja ca multiplicator de rază, ca
+    // să nu fie nevoie de nicio rescriere a randării când RF-06 trimite alte
+    // valori.
+    const baseRadius = 6 * (pawn.sizeFactor || 1);
+    let radius = baseRadius;
+    if (pawn.working && !reduced) {
+      radius = baseRadius + Math.sin(nowMs / 300) * 2;
+    }
+
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = '#f4f2ee';
+    ctx.fill();
+    if (pawn.working && reduced) {
+      // reduced-motion: fără pulsație — marcaj static (contur mai gros/altă
+      // culoare), ca lucrul confirmat să tot fie vizibil.
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#c96442';
+    } else {
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+    }
+    ctx.stroke();
+
+    // Inițiala numelui — text minim prin ctx.fillText (Canvas, nu HTML, deci
+    // sigur la XSS ca restul modulului).
+    const initial = (pawn.name || '?').trim().charAt(0).toUpperCase() || '?';
+    ctx.font = '600 8px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#111';
+    ctx.fillText(initial, pos.x, pos.y);
+  }
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** RF-05c: pornește/oprește bucla `requestAnimationFrame`, apelată doar la
+ * poll (nu la fiecare cadru) — bucla rulează DOAR cât timp există cel puțin
+ * un pawn `working: true` ȘI reduced-motion e fals; altfel desenul rămâne
+ * static (redesenat doar la poll/resize, ca la RF-05b), fără cost de
+ * CPU/baterie degeaba. */
+function updateAnimationLoop() {
+  const shouldAnimate = !prefersReducedMotion() && pawns.some((p) => p.working);
+  if (shouldAnimate && rafId === null) {
+    const loop = () => {
+      draw();
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+  } else if (!shouldAnimate && rafId !== null) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
 }
 
 async function pollOnce() {
@@ -160,6 +260,8 @@ async function pollOnce() {
     const body = await res.json();
     if (myToken !== requestToken) return; // răspuns vechi — un ciclu mai nou a preluat deja
     zones = body.zones || [];
+    pawns = body.pawns || [];
+    updateAnimationLoop();
     draw();
   } catch (e) {
     // eșecul de sondare nu are indicator propriu în acest lot — harta pur
