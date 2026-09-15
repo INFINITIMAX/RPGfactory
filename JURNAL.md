@@ -19,7 +19,8 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-02a | baza de date: structura și migrațiile | ✅ gata (297/297 teste), **urcat pe GitHub** |
 | RF-02b | profilurile agenților, salvate permanent, cu API | ✅ gata (370/370 teste), **urcat pe GitHub** |
 | RF-02c | sesiuni observate, asociere la profiluri | ✅ gata (442/442 teste), **urcat pe GitHub** |
-| RF-03 | citirea reală din Pi și Claude Code | ⬜ |
+| RF-03a | citirea reală din Claude Code | ✅ gata (459/459 teste), **aștept aprobarea ta pentru push** |
+| RF-03b | citirea reală din Pi + reporter | ⬜ urmează |
 | RF-04 | **primul ecran vizibil**: tabele, arbore, inspector | ⬜ |
 | RF-05 | harta cu hexagoane, personaje, mișcare | ⬜ |
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
@@ -127,6 +128,25 @@ Acum poți: crea un profil de agent, îl poți aproba, îi poți schimba special
 Ai aprobat. **Commit `631ad02`**, 11 fișiere, +2142 linii. Urcat pe `INFINITIMAX/RPGfactory`.
 
 Cu asta, tot RF-02 (fundația de date: baza SQLite, profiluri, sesiuni) e pe GitHub, de la RF-02a la RF-02c.
+
+### 15-09 — Trei decizii pentru RF-03, clarificate cu tine
+Ai ales: Claude Code întâi, separat de Pi (Pi vine mai târziu, are nevoie de un mecanism suplimentar — „reporter" — pe care-l construim atunci, cu aprobarea ta separată la instalare). Ingestia sesiunilor rulează **automat, în fundal** — serverul se uită singur la sesiunile Claude Code la fiecare 5 secunde, cât timp rulează, fără să-l ceri de fiecare dată.
+
+### 15-09 — RF-03a: pornit
+Primul adaptor real. Serverul începe să „vadă" sesiunile tale Claude Code adevărate și le înregistrează în baza nouă (`runs`, de la RF-02c) — vii ca „running", oprite ca „stopped", nu doar le ignoră când mor, cum făcea codul vechi. Nu leagă nimic automat de un profil — asocierea rămâne strict manuală, decizia ta. Trimis la coder.
+
+### 15-09 — RF-03a: livrat de coder, verificat de mine
+Am citit codul direct și am rulat suita veche (442/442, nicio stricăciune). Bine construit — pornirea/oprirea sondării e legată corect de pornirea/oprirea serverului, aceeași lecție de la RF-02b aplicată din nou corect. Trimis la tester.
+
+### 15-09 — RF-03a: teste gata, toate trec
+**459 teste, toate trec.** Trimis la reviewer.
+
+### 15-09 — RF-03a: ÎNCHIS
+Reviewer-ul a acceptat, fără nicio rezervă — a doua livrare la rând (după RF-02c) fără nicio corecție.
+
+**Ce s-a schimbat, în practică**: serverul citește acum, singur, la fiecare 5 secunde, sesiunile tale Claude Code reale de pe disc și le ține evidența în baza nouă — inclusiv pe cele oprite (înainte, codul vechi le arunca pur și simplu, ca și cum n-ar fi existat). Nimic nu se leagă automat de un profil — rămâne decizia ta, explicit.
+
+**Nu am urcat încă pe GitHub.** Aștept aprobarea ta.
 
 ### 15-09 — PUSH: RF-02b pe GitHub
 Ai aprobat. **Commit `c1f215b`**, 13 fișiere, +2249 linii. Urcat pe `INFINITIMAX/RPGfactory`.

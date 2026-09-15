@@ -17,6 +17,7 @@ const { createProfilesStore } = require('./profiles');
 const { createRunsStore } = require('./runs');
 const { readJsonBody } = require('./body');
 const { buildAllowedOrigins, checkOrigin, resolveStaticPath } = require('./server/http-guards');
+const { pollClaudeCodeSessions } = require('./adapters/claude-code');
 
 const CONTENT_TYPES = {
   '.html': 'text/html',
@@ -164,6 +165,10 @@ function createServer(options = {}) {
   const now = options.now || (() => Date.now());
   const opener = options.opener || defaultOpener;
   const isAlive = options.isAlive || defaultIsAlive;
+  // RF-03a: interval de sondare a sesiunilor Claude Code, injectabil ca
+  // restul opțiunilor (D1/D12) — 5 secunde implicit, suficient de des ca să
+  // prindă tranziții de lifecycle fără să bată disc-ul degeaba.
+  const pollIntervalMs = options.pollIntervalMs || 5000;
 
   const stateStore = createStateStore({ dataDir, now });
   // Ca la stateStore: construcția store-ului nu deschide baza (RF-02b,
@@ -603,6 +608,34 @@ function createServer(options = {}) {
   // separat la închidere.
   server.closeRunsStore = runsStore.close;
 
+  // RF-03a: sondarea periodică a sesiunilor Claude Code. `createServer` NU
+  // pornește timer-ul la construcție (D1) — un `setInterval` pornit aici ar
+  // citi sesiuni reale de pe disc doar pentru că cineva a CONSTRUIT
+  // serverul, chiar dacă nu l-a pornit niciodată. `startPolling`/
+  // `stopPolling` sunt idempotente: `pollTimer` e păstrat în closure ca
+  // gardă — a doua chemare a `startPolling()` nu creează al doilea timer,
+  // iar `stopPolling()` e sigur de apelat chiar dacă n-a pornit niciodată
+  // (`clearInterval(null)` nu aruncă).
+  let pollTimer = null;
+  server.startPolling = () => {
+    if (pollTimer) return;
+    pollTimer = setInterval(() => {
+      pollClaudeCodeSessions({ sessionsDir, isAlive, runsStore });
+    }, pollIntervalMs);
+    // Timer-ul nu trebuie să țină procesul Node agățat DOAR prin el însuși
+    // — dacă restul serverului s-a închis (HTTP oprit, baze închise), un
+    // `setInterval` fără `.unref()` ar fi singurul motiv pentru care
+    // procesul n-ar ieși. `unref()` elimină acel motiv, fără să afecteze
+    // `stopPolling()` (tot îl putem opri explicit oricând).
+    pollTimer.unref();
+  };
+  server.stopPolling = () => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  };
+
   // RF-02b-c: `closeProfilesStore` de mai sus nu ajută dacă apelantul
   // oprește serverul cu `.close()` direct pe obiectul brut (fără să treacă
   // prin `startServer(...)`) — atunci nimeni nu-l cheamă și baza rămâne
@@ -616,6 +649,10 @@ function createServer(options = {}) {
   // `profilesStore`.
   const nativeClose = server.close.bind(server);
   server.close = (callback) => nativeClose((err) => {
+    // RF-03a: extinde ACELAȘI wrapper (nu creează altul paralel) — orice
+    // închidere a serverului oprește și sondarea în fundal, alături de
+    // `profilesStore`/`runsStore`.
+    server.stopPolling();
     profilesStore.close();
     runsStore.close();
     if (callback) callback(err);
@@ -639,6 +676,9 @@ function startServer(options = {}) {
     server.listen(port, host, () => {
       const address = server.address();
       server.setAllowedOrigins(buildAllowedOrigins(address.port));
+      // RF-03a: sondarea în fundal pornește doar aici, după `listen()` —
+      // niciodată la `createServer()` (D1).
+      server.startPolling();
       console.log('agent-map skeleton running at http://' + host + ':' + address.port + '/');
       console.log('reading sessions from ' + sessionsDir);
       resolve({
