@@ -28,7 +28,7 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 
 **Pe GitHub:** ultimul urcat e `dee2e08` (RF-03a).
 
-**Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. Serverul tău de pe portul 5311 (PID 54236) rulează în continuare, n-a fost oprit niciodată.
+**Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. **Serverul tău de pe portul 5311 nu mai rulează** (verificat direct — port liber, PID vechi 54236 dispărut; nu l-am oprit eu, s-a oprit separat, în afara acestei sesiuni). Pornește-l din nou ca să vezi noul ecran RF-04.
 
 ---
 
@@ -194,7 +194,7 @@ Reviewer-ul a acceptat, fără nimic de retrimis — a confirmat el însuși, ci
 ### 15-09 — PUSH: RF-04 pe GitHub
 Ai aprobat. **Commit `1739f04`**, 19 fișiere, +2405 linii. Urcat pe `INFINITIMAX/RPGfactory`.
 
-**Corecție importantă**: serverul tău de pe 5311 (PID 54236) rulează în continuare cu codul de dinainte de tot ce am făcut azi — n-a fost repornit niciodată. Ca să vezi noul ecran, serverul trebuie repornit cu codul nou. Nu fac asta singur, fără să-mi spui — oprirea/repornirea serviciilor tale active e o acțiune pe care o confirmi tu explicit, nu o iau de la sine.
+**Corecție, verificată direct chiar acum**: serverul tău de pe 5311 (PID 54236) **nu mai rulează** — portul e liber, procesul nu mai există. Nu l-am oprit eu în această sesiune (nu l-am atins niciodată) — pare să se fi oprit separat, în afara lucrului de azi. Ca să vezi noul ecran, pornește-l din nou tu (`node --env-file=.env server.js`, din `D:\RPGfactory`) sau cere-mi explicit s-o fac.
 
 ### 15-09 — PUSH: RF-02b pe GitHub
 Ai aprobat. **Commit `c1f215b`**, 13 fișiere, +2249 linii. Urcat pe `INFINITIMAX/RPGfactory`.
