@@ -15,6 +15,9 @@ const { getActivityState } = require('./status');
 const { createStateStore } = require('./state');
 const { createProfilesStore } = require('./profiles');
 const { createRunsStore } = require('./runs');
+const { createLayoutStore } = require('./layout');
+const { groupProjects, pickAccent } = require('./world');
+const { allocateCells } = require('./hex-layout');
 const { readJsonBody } = require('./body');
 const { buildAllowedOrigins, checkOrigin, resolveStaticPath } = require('./server/http-guards');
 const { pollClaudeCodeSessions } = require('./adapters/claude-code');
@@ -178,6 +181,11 @@ function createServer(options = {}) {
   // RF-02c: handle SQLite propriu, independent de `profilesStore` — deschis
   // lazy la fel (vezi runs.js), fără să partajeze ownership-ul de închidere.
   const runsStore = createRunsStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
+  // RF-05b: handle SQLite propriu, independent de `profilesStore`/`runsStore`
+  // — deschis lazy la fel (vezi layout.js), fără să partajeze ownership-ul
+  // de închidere. Refolosește `options.dbPath`/`options.migrationsDir`, NU o
+  // cale de configurare separată.
+  const layoutStore = createLayoutStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
 
   // Setul de origini permise nu se cunoaște până nu ascultă efectiv
   // serverul (portul efemer 0 devine un port real abia atunci). Se
@@ -546,6 +554,32 @@ function createServer(options = {}) {
       return;
     }
 
+    // RF-05b: /api/world — zonele hărții, recalculate de fiecare dată (nu se
+    // face cache separat, nu invalidare manuală). Doar GET — nicio mutație
+    // expusă pentru layout (vezi layout.js, de ce nu are CAS).
+    if (pathname === '/api/world') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { Allow: 'GET, HEAD' });
+        res.end();
+        return;
+      }
+      const profiles = profilesStore.listProfiles();
+      const projects = groupProjects(profiles);
+      const previous = layoutStore.getLayout();
+      const laid = allocateCells(projects, previous);
+      // Persistă imediat, ca următoarea cerere să pornească de la acest
+      // `previous` — memoria lui `allocateCells` supraviețuiește restart-ului.
+      layoutStore.saveLayout(laid);
+      const zones = projects.map(({ id }) => ({
+        project: id,
+        cells: laid.get(id) || [],
+        accent: pickAccent(id),
+      }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ zones }));
+      return;
+    }
+
     if (isApi) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: 'not found' }));
@@ -607,6 +641,9 @@ function createServer(options = {}) {
   // RF-02c: la fel, pentru `runsStore` — handle SQLite separat, ownership
   // separat la închidere.
   server.closeRunsStore = runsStore.close;
+  // RF-05b: la fel, pentru `layoutStore` — handle SQLite separat, ownership
+  // separat la închidere.
+  server.closeLayoutStore = layoutStore.close;
 
   // RF-03a: sondarea periodică a sesiunilor Claude Code. `createServer` NU
   // pornește timer-ul la construcție (D1) — un `setInterval` pornit aici ar
@@ -655,6 +692,9 @@ function createServer(options = {}) {
     server.stopPolling();
     profilesStore.close();
     runsStore.close();
+    // RF-05b: extinde ACELAȘI wrapper (nu creează altul paralel) — la orice
+    // închidere a serverului, se închide și `layoutStore`.
+    layoutStore.close();
     if (callback) callback(err);
   });
 
@@ -685,9 +725,9 @@ function startServer(options = {}) {
         server,
         address,
         port: address.port,
-        // RF-02b-c/RF-02c: `server.close()` închide automat și
-        // profilesStore, și runsStore (vezi wrapper-ul din `createServer`)
-        // — HTTP-ul se oprește întâi
+        // RF-02b-c/RF-02c/RF-05b: `server.close()` închide automat
+        // profilesStore, runsStore ȘI layoutStore (vezi wrapper-ul din
+        // `createServer`) — HTTP-ul se oprește întâi
         // (așteaptă cererile active, comportamentul implicit al
         // http.Server#close()), abia apoi se închide baza, deci nu există
         // fereastră în care închiderea bazei să taie o cerere în curs.

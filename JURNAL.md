@@ -22,7 +22,7 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-03a | citirea reală din Claude Code | ✅ gata (459/459 teste), **urcat pe GitHub** |
 | RF-03b | citirea reală din Pi + reporter | ⬜ **mutat mai jos** — Lucian a ales harta întâi |
 | RF-04 | **primul ecran vizibil**: tabele, inspector | ✅ gata (497/497 teste), **urcat pe GitHub** |
-| RF-05 | harta cu hexagoane, personaje, mișcare | 🔶 **în curs** — RF-05a ✅ gata (514/514 teste), RF-05b/c urmează |
+| RF-05 | harta cu hexagoane, personaje, mișcare | 🔶 **în curs** — **harta se vede acum** (RF-05a+RF-05b gata, 536/536 teste), personajele (RF-05c) urmează |
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ |
 
@@ -49,6 +49,16 @@ Task: funcție pură de alocare a celulelor hexagonale, cu memorie (o zonă care
 Coder-ul a livrat `hex-layout.js` — am citit codul direct (nu doar raportul) și am confirmat că a portat corect logica din bot-crossing și a scos complet celula rezervată de "navă" pe care sursa o folosea. Testerul a scris 17 teste care verifică proprietăți reale (o zonă care crește își păstrează exact celulele vechi, una care se micșorează renunță la ultimele, harta rămâne mereu un singur teritoriu conex). Am rulat eu, cu `npm test`: **514/514 teste, 0 eșecuri** — nicio corecție a fost nevoie, prima livrare a fost bună de la coder și de la tester deopotrivă. Reviewer-ul a confirmat: ACCEPT pentru amândouă.
 
 **Ce înseamnă practic**: acum știm exact ce celulă hexagonală primește fiecare proiect (grupat pe `last_project`) și cum crește/se micșorează o zonă fără să sară pe hartă. Nimic nu se vede încă — asta e RF-05b, desenul propriu-zis pe Canvas.
+
+### 15-09 — RF-05b: brief trimis coder-ului
+`spec.md` cere ca layout-ul (cine stă unde) să supraviețuiască unui restart al serverului, nu doar să existe cât timp rulează — așa că acest lot adaugă o tabelă nouă în baza de date, plus legătura reală: profiluri → grupare pe proiect → `hex-layout.js` (RF-05a) → salvare → un prim desen pe ecran (hexagoane colorate per proiect, fără personaje încă). Vezi `docs/handoff/RF-05b-coder.md`.
+
+### 15-09 — RF-05b: harta apărea neagră — găsit și reparat un bug real prin verificare vizuală
+Codul de bază (baza de date, endpoint, teste) a fost curat de la prima livrare — 536/536 teste. Dar când am deschis efectiv pagina într-un browser, pe o instanță de test separată, **harta era complet neagră**, deși datele erau corecte. Am săpat direct în pagină (nu doar în cod) și am găsit cauza: cele două fișiere de pe ecran (`hud.js`, cel cu tabelele, și `world.js`, cel nou cu harta) declarau amândouă aceeași variabilă la același „nivel", iar browserul refuza să mai încarce al doilea fișier din cauza asta — fără să arate vreo eroare vizibilă ție, ca utilizator, doar o hartă goală.
+
+Niciun test automat nu putea prinde asta (problema apare doar când ambele fișiere sunt încărcate împreună, într-o pagină reală). Exact de-asta verific mereu vizual, nu doar cu teste. Am trimis o corecție scurtă coder-ului (izolarea codului nou într-un „pachet" separat, ca să nu mai calce pe fișierul vechi), am reverificat eu însumi în browser, pe o instanță nouă — acum harta se vede corect: fiecare proiect are un hexagon colorat diferit, cu poziții marcate pentru specialiști și numele proiectului scris lângă el.
+
+**RF-05b închis.** Reviewer: ACCEPT. 536/536 teste, de două ori (înainte și după corecție).
 
 ---
 
