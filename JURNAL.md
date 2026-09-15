@@ -17,7 +17,7 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-00 | pune ordine în documente | ✅ gata |
 | RF-01 | face serverul sigur și testabil | ✅ gata, **urcat pe GitHub** |
 | RF-02a | baza de date: structura și migrațiile | ✅ gata (297/297 teste), **urcat pe GitHub** |
-| RF-02b | profilurile agenților, salvate permanent | ⬜ urmează |
+| RF-02b | profilurile agenților, salvate permanent, cu API | ✅ gata (370/370 teste), **aștept aprobarea ta pentru push** |
 | RF-02c | legarea sesiunilor reale de profiluri | ⬜ urmează |
 | RF-03 | citirea reală din Pi și Claude Code | ⬜ |
 | RF-04 | **primul ecran vizibil**: tabele, arbore, inspector | ⬜ |
@@ -81,6 +81,49 @@ O singură notă (nu blochează): comanda `node --test test/` nu merge pe Node 2
 Ai aprobat. **Commit `2e004ec`**, 15 fișiere, +2228 linii. Urcat pe `INFINITIMAX/RPGfactory`.
 
 Ce s-a urcat: `db.js`, `migrations/001-profiluri.sql`, `test/db.test.mjs`, `JURNAL.md`, plus toate brief-urile/rapoartele RF-02a din `docs/handoff/`. Documentele de coordonare (`TASKS.md`, `GATES.md`, `AGENTS.md`, `instructiuni.md`, `spec.md` etc.) rămân doar local, cum s-a decis pe 14-09.
+
+### 15-09 — RF-02b: pornit
+Următorul lot: profilurile devin utilizabile. Construim un modul (`profiles.js`) care poate crea un profil, îl poate aproba, îl poate schimba în siguranță (verificare de revizie, ca să nu se piardă o scriere dacă doi oameni/agenți schimbă același profil simultan), și îl leagă de rute noi în server (`/api/profiles`). Trimis la coder.
+
+### 15-09 — RF-02b: livrat de coder, verificat de mine
+Am citit codul direct (nu doar raportul). E bine construit: baza de date chiar nu se deschide până la prima cerere reală, verificarea de revizie funcționează corect, un profil inexistent și un conflict de revizie dau răspunsuri diferite (404 vs. 409), fiecare câmp schimbat își are propriul rând în istoric.
+
+**O singură observație, nu bug:** când creezi o configurație pentru un profil care nu există, coder-ul detectează asta căutând textul "FOREIGN KEY" în mesajul de eroare al bazei de date. Am verificat manual pe mașina asta — azi funcționează exact așa. Dar există o variantă mai solidă (un cod numeric fix, nu text care se poate schimba între versiuni). Nu e nimic stricat acum — am notat observația pentru tester, ca decizia să fie scrisă undeva, nu doar în capul meu.
+
+Trimis la tester.
+
+### 15-09 — RF-02b: testele au găsit 3 probleme, dintre care una reală de producție
+Rulare: **3 teste pică** (din suita nouă). Analizate una câte una:
+
+1. Un test aștepta 400 pentru un id cu `%00` în el, a primit 404. Verificat: nu e bug — id-ul din URL nu se decodează niciodată (aceeași regulă de la RF-01), deci `%00` rămâne text obișnuit, nu un caracter de control real. Eu am cerut testul ăsta greșit în brief, copiind un tipar care nu se aplică aici. Se repară testul.
+2. O eroare de program (`TypeError`) la un test care verifica o parte de securitate — cauza: testul a trimis datele într-o formă greșită către o funcție internă. Bug de test, nu de server. Se repară testul.
+3. **Bug real, de producție**: când serverul se oprește, baza de date a profilurilor rămâne deschisă. Pe Windows, asta blochează ștergerea fișierului — exact problema pe care am reparat-o la RF-02a (acolo era baza însăși care rămânea deschisă la o pornire eșuată; aici e serverul care nu-i spune bazei să se închidă când se oprește el). Trimis la coder.
+
+Am scris ambele corecții (coder pentru bug-ul real, tester pentru cele două teste greșite) și le-am lansat.
+
+### 15-09 — RF-02b-b: fix-ul coder-ului, verificat — dar posibil incomplet
+Coder-ul a adăugat închiderea bazei de profiluri, dar doar pe calea „normală" de pornire a serverului (`startServer`). Testul care a picat inițial NU trece pe acolo — construiește serverul direct, mai „manual", tocmai ca să poată verifica o stare de dinainte de pornire. Pe calea aia, închiderea bazei tot nu se întâmplă automat.
+
+Nu știu încă dacă mai e nevoie de o reparație — depinde ce arată testele când rulează. Aștept rezultatul, apoi decid: fie tester-ul adaugă un apel lipsă în testul lui, fie e mai bine ca închiderea să se întâmple automat, indiferent cum pornește cineva serverul (mai sigur, nu depinde ca fiecare loc care oprește serverul să-și amintească să facă și pasul suplimentar).
+
+### 15-09 — RF-02b-b: 369/370, bănuiala confirmată
+Cele două teste greșite (raportate mai sus) sunt reparate. A mai rămas exact eșecul pe care îl bănuiam: testul de deschidere lazy tot dă eroare la curățenie, pentru că el pornește serverul „manual" (nu prin calea normală), iar reparația de ieri nu acoperă și calea aia.
+
+Decizie: nu mai pun plasture pe încă un loc — cer coder-ului să facă închiderea automată, indiferent CINE oprește serverul și CUM. Trimis RF-02b-c.
+
+### 15-09 — RF-02b-c: reparat, verificat — 370/370
+Coder-ul a înfășurat metoda de închidere a serverului, ca oricine o cheamă (indiferent cum a pornit serverul) să închidă automat și baza de date. Am verificat direct în cod, apoi am rulat toată suita: **370 teste, toate trec.**
+
+Trimis la reviewer, cu tot istoricul lotului (fundație + cele două corecții).
+
+### 15-09 — RF-02b: ÎNCHIS
+Reviewer-ul a acceptat tot lotul, fără nimic de respins. A confirmat, verificând el însuși: verificarea de revizie chiar previne pierderea unei scrieri, un id inexistent și un conflict real sunt distinse corect, iar reparația finală de închidere a bazei acoperă orice mod de a opri serverul, nu doar cel normal.
+
+**Rezultat final: 370 teste, 370 trec, 0 eșecuri.**
+
+Acum poți: crea un profil de agent, îl poți aproba, îi poți schimba specializarea sau eligibilitatea (în siguranță — dacă doi oameni/agenți încearcă să-l schimbe simultan, al doilea primește un răspuns clar de conflict, nu suprascrie tăcut primul), și poți vedea toată istoria lui. Tot prin API — nu se vede încă nimic pe ecran (asta e RF-04).
+
+**Nu am urcat încă pe GitHub.** Aștept aprobarea ta.
 
 ### 15-09, seara — SESIUNEA S-A ÎNCHEIAT AICI
 

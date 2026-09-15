@@ -13,6 +13,7 @@ const { spawn } = require('child_process');
 const { getRank } = require('./rank');
 const { getActivityState } = require('./status');
 const { createStateStore } = require('./state');
+const { createProfilesStore } = require('./profiles');
 const { readJsonBody } = require('./body');
 const { buildAllowedOrigins, checkOrigin, resolveStaticPath } = require('./server/http-guards');
 
@@ -44,6 +45,32 @@ function defaultIsAlive(pid) {
   } catch (e) {
     return false;
   }
+}
+
+// Traduce erorile aruncate de profiles.js în răspunsuri HTTP. `e.code`
+// vine din modul ('VALIDATION' -> 400, 'NOT_FOUND' -> 404,
+// 'CONFLICT' -> 409, cu `e.current` atașat). O eroare fără `code` e
+// neașteptată (ex. eroare de disc) — tratată ca 500, ca la state.js, nu
+// lăsată să iasă neprinsă din callback-ul cererii HTTP.
+function respondProfileError(res, e) {
+  if (e && e.code === 'VALIDATION') {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: e.message }));
+    return;
+  }
+  if (e && e.code === 'NOT_FOUND') {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: e.message }));
+    return;
+  }
+  if (e && e.code === 'CONFLICT') {
+    res.writeHead(409, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: e.message, current: e.current || null }));
+    return;
+  }
+  console.error('server.js: eroare neașteptată din profilesStore:', e);
+  res.writeHead(500, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ ok: false, error: 'eroare internă' }));
 }
 
 function resolveFolder(folder) {
@@ -105,6 +132,10 @@ function createServer(options = {}) {
   const isAlive = options.isAlive || defaultIsAlive;
 
   const stateStore = createStateStore({ dataDir, now });
+  // Ca la stateStore: construcția store-ului nu deschide baza (RF-02b,
+  // §2.1) — deschiderea e lazy, în interiorul profiles.js, la prima cerere
+  // reală care ajunge pe /api/profiles.
+  const profilesStore = createProfilesStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
 
   // Setul de origini permise nu se cunoaște până nu ascultă efectiv
   // serverul (portul efemer 0 devine un port real abia atunci). Se
@@ -217,6 +248,128 @@ function createServer(options = {}) {
       return;
     }
 
+    // RF-02b: /api/profiles și sub-căile lui. server.js nu are router — pe
+    // `pathname.split('/')` obținem segmentele, ca la orice altă rută de
+    // aici, doar că avem nevoie de un `id` opțional în cale.
+    if (pathname === '/api/profiles' || pathname.startsWith('/api/profiles/')) {
+      const segments = pathname.split('/').filter(Boolean); // ['api', 'profiles', id?, sub?]
+      const id = segments[2];
+      const sub = segments[3];
+
+      if (segments.length > 4 || (sub !== undefined && sub !== 'history' && sub !== 'configurations')) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'not found' }));
+        return;
+      }
+
+      if (id !== undefined && CONTROL_CHARS.test(id)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'id invalid' }));
+        return;
+      }
+
+      // /api/profiles
+      if (id === undefined) {
+        if (req.method === 'POST') {
+          readJsonBody(req, res, (data) => {
+            try {
+              const profile = profilesStore.createProfile({
+                name: data && data.name,
+                primarySpecialization: data && data.primarySpecialization,
+              });
+              res.writeHead(201, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(profile));
+            } catch (e) {
+              respondProfileError(res, e);
+            }
+          });
+          return;
+        }
+        if (req.method === 'GET') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(profilesStore.listProfiles()));
+          return;
+        }
+        res.writeHead(405, { Allow: 'GET, POST' });
+        res.end();
+        return;
+      }
+
+      // /api/profiles/{id}/history
+      if (sub === 'history') {
+        if (req.method !== 'GET') {
+          res.writeHead(405, { Allow: 'GET' });
+          res.end();
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(profilesStore.getProfileHistory(id)));
+        return;
+      }
+
+      // /api/profiles/{id}/configurations
+      if (sub === 'configurations') {
+        if (req.method === 'POST') {
+          readJsonBody(req, res, (data) => {
+            try {
+              const configuration = profilesStore.createConfigurationVersion(id, {
+                harness: data && data.harness,
+                provider: data && data.provider,
+                model: data && data.model,
+                instructionsRef: data && data.instructionsRef,
+                skillsRef: data && data.skillsRef,
+                memoryRef: data && data.memoryRef,
+              });
+              res.writeHead(201, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(configuration));
+            } catch (e) {
+              respondProfileError(res, e);
+            }
+          });
+          return;
+        }
+        if (req.method === 'GET') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(profilesStore.listConfigurationVersions(id)));
+          return;
+        }
+        res.writeHead(405, { Allow: 'GET, POST' });
+        res.end();
+        return;
+      }
+
+      // /api/profiles/{id}
+      if (req.method === 'GET') {
+        const profile = profilesStore.getProfile(id);
+        if (!profile) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'profilul ' + id + ' nu există' }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(profile));
+        return;
+      }
+      if (req.method === 'PATCH') {
+        readJsonBody(req, res, (data) => {
+          try {
+            const profile = profilesStore.updateProfile(id, {
+              expectedRevision: data && data.expectedRevision,
+              changes: data && data.changes,
+            });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(profile));
+          } catch (e) {
+            respondProfileError(res, e);
+          }
+        });
+        return;
+      }
+      res.writeHead(405, { Allow: 'GET, PATCH' });
+      res.end();
+      return;
+    }
+
     if (isApi) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: 'not found' }));
@@ -268,6 +421,28 @@ function createServer(options = {}) {
     allowedOrigins = allowed;
   };
 
+  // RF-02b-b: expune închiderea bazei de profiluri, altfel handle-ul SQLite
+  // memoizat (deschis lazy de profiles.js) rămâne deschis după ce serverul
+  // HTTP se oprește. `close()` intern e sigur de apelat necondiționat —
+  // vezi profiles.js (nu deschide baza doar ca s-o închidă la loc).
+  // Rămâne disponibil separat pentru un apelant care vrea explicit doar
+  // baza, fără să oprească HTTP-ul.
+  server.closeProfilesStore = profilesStore.close;
+
+  // RF-02b-c: `closeProfilesStore` de mai sus nu ajută dacă apelantul
+  // oprește serverul cu `.close()` direct pe obiectul brut (fără să treacă
+  // prin `startServer(...)`) — atunci nimeni nu-l cheamă și baza rămâne
+  // deschisă. Înfășurăm metoda nativă ca ORICE apelant al `close()` să
+  // închidă și baza, automat. `nativeClose` păstrează comportamentul
+  // nativ: dacă serverul n-a ascultat niciodată, callback-ul primește
+  // eroarea `ERR_SERVER_NOT_RUNNING` exact ca înainte — noi doar o
+  // propagăm mai departe, nu o înghițim și nu o transformăm.
+  const nativeClose = server.close.bind(server);
+  server.close = (callback) => nativeClose((err) => {
+    profilesStore.close();
+    if (callback) callback(err);
+  });
+
   return server;
 }
 
@@ -292,6 +467,11 @@ function startServer(options = {}) {
         server,
         address,
         port: address.port,
+        // RF-02b-c: `server.close()` închide și baza de profiluri automat
+        // (vezi wrapper-ul din `createServer`) — HTTP-ul se oprește întâi
+        // (așteaptă cererile active, comportamentul implicit al
+        // http.Server#close()), abia apoi se închide baza, deci nu există
+        // fereastră în care închiderea bazei să taie o cerere în curs.
         close: () => new Promise((res) => server.close(() => res())),
       });
     });
