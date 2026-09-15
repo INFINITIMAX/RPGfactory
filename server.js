@@ -14,6 +14,7 @@ const { getRank } = require('./rank');
 const { getActivityState } = require('./status');
 const { createStateStore } = require('./state');
 const { createProfilesStore } = require('./profiles');
+const { createRunsStore } = require('./runs');
 const { readJsonBody } = require('./body');
 const { buildAllowedOrigins, checkOrigin, resolveStaticPath } = require('./server/http-guards');
 
@@ -69,6 +70,39 @@ function respondProfileError(res, e) {
     return;
   }
   console.error('server.js: eroare neașteptată din profilesStore:', e);
+  res.writeHead(500, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ ok: false, error: 'eroare internă' }));
+}
+
+// Ca `respondProfileError`, dar pentru erorile venite din `runs.js`. La
+// CONFLICT, `runsStore.associateProfile` poate atașa fie `current` (revizie
+// neconcordantă), fie `activeRuns` (I24 — run-uri active care blochează
+// asocierea) — ambele sunt trimise mai departe dacă există, fără să
+// presupunem care anume e prezentă.
+function respondRunError(res, e) {
+  if (e && e.code === 'VALIDATION') {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: e.message }));
+    return;
+  }
+  if (e && e.code === 'NOT_FOUND') {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: e.message }));
+    return;
+  }
+  if (e && e.code === 'CONFLICT') {
+    res.writeHead(409, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        ok: false,
+        error: e.message,
+        current: e.current || null,
+        activeRuns: e.activeRuns || null,
+      })
+    );
+    return;
+  }
+  console.error('server.js: eroare neașteptată din runsStore:', e);
   res.writeHead(500, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ ok: false, error: 'eroare internă' }));
 }
@@ -136,6 +170,9 @@ function createServer(options = {}) {
   // §2.1) — deschiderea e lazy, în interiorul profiles.js, la prima cerere
   // reală care ajunge pe /api/profiles.
   const profilesStore = createProfilesStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
+  // RF-02c: handle SQLite propriu, independent de `profilesStore` — deschis
+  // lazy la fel (vezi runs.js), fără să partajeze ownership-ul de închidere.
+  const runsStore = createRunsStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
 
   // Setul de origini permise nu se cunoaște până nu ascultă efectiv
   // serverul (portul efemer 0 devine un port real abia atunci). Se
@@ -256,7 +293,10 @@ function createServer(options = {}) {
       const id = segments[2];
       const sub = segments[3];
 
-      if (segments.length > 4 || (sub !== undefined && sub !== 'history' && sub !== 'configurations')) {
+      if (
+        segments.length > 4 ||
+        (sub !== undefined && sub !== 'history' && sub !== 'configurations' && sub !== 'runs')
+      ) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: 'not found' }));
         return;
@@ -338,6 +378,18 @@ function createServer(options = {}) {
         return;
       }
 
+      // /api/profiles/{id}/runs — analog cu /api/profiles/{id}/configurations.
+      if (sub === 'runs') {
+        if (req.method !== 'GET') {
+          res.writeHead(405, { Allow: 'GET' });
+          res.end();
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(runsStore.listRunsForProfile(id)));
+        return;
+      }
+
       // /api/profiles/{id}
       if (req.method === 'GET') {
         const profile = profilesStore.getProfile(id);
@@ -366,6 +418,125 @@ function createServer(options = {}) {
         return;
       }
       res.writeHead(405, { Allow: 'GET, PATCH' });
+      res.end();
+      return;
+    }
+
+    // RF-02c: /api/runs și sub-căile lui. `id`-ul unui run poate conține
+    // ':' (formula `sourceHarness:nativeId`) — inofensiv pentru
+    // `pathname.split('/')`, fiindcă ':' nu e separator de cale.
+    if (pathname === '/api/runs' || pathname.startsWith('/api/runs/')) {
+      const segments = pathname.split('/').filter(Boolean); // ['api', 'runs', 'observe'|id?, sub?]
+
+      // POST /api/runs/observe — acțiune fixă, verificată înaintea rutării
+      // pe id, ca să nu depindă de coincidența cu un run al cărui id ar fi
+      // literal "observe".
+      if (segments.length === 3 && segments[2] === 'observe') {
+        if (req.method !== 'POST') {
+          res.writeHead(405, { Allow: 'POST' });
+          res.end();
+          return;
+        }
+        readJsonBody(req, res, (data) => {
+          try {
+            const run = runsStore.observeRun({
+              sourceHarness: data && data.sourceHarness,
+              nativeId: data && data.nativeId,
+              project: data && data.project,
+              lifecycle: data && data.lifecycle,
+            });
+            res.writeHead(201, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(run));
+          } catch (e) {
+            respondRunError(res, e);
+          }
+        });
+        return;
+      }
+
+      const id = segments[2];
+      const sub = segments[3];
+
+      if (segments.length > 4 || (sub !== undefined && sub !== 'associate' && sub !== 'dissociate')) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'not found' }));
+        return;
+      }
+
+      if (id !== undefined && CONTROL_CHARS.test(id)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'id invalid' }));
+        return;
+      }
+
+      // /api/runs
+      if (id === undefined) {
+        if (req.method !== 'GET') {
+          res.writeHead(405, { Allow: 'GET' });
+          res.end();
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(runsStore.listRuns()));
+        return;
+      }
+
+      // /api/runs/{id}/associate
+      if (sub === 'associate') {
+        if (req.method !== 'POST') {
+          res.writeHead(405, { Allow: 'POST' });
+          res.end();
+          return;
+        }
+        readJsonBody(req, res, (data) => {
+          try {
+            const run = runsStore.associateProfile(id, {
+              profileId: data && data.profileId,
+              expectedRevision: data && data.expectedRevision,
+            });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(run));
+          } catch (e) {
+            respondRunError(res, e);
+          }
+        });
+        return;
+      }
+
+      // /api/runs/{id}/dissociate
+      if (sub === 'dissociate') {
+        if (req.method !== 'POST') {
+          res.writeHead(405, { Allow: 'POST' });
+          res.end();
+          return;
+        }
+        readJsonBody(req, res, (data) => {
+          try {
+            const run = runsStore.dissociateProfile(id, {
+              expectedRevision: data && data.expectedRevision,
+            });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(run));
+          } catch (e) {
+            respondRunError(res, e);
+          }
+        });
+        return;
+      }
+
+      // /api/runs/{id}
+      if (req.method === 'GET') {
+        const run = runsStore.getRun(id);
+        if (!run) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'run-ul ' + id + ' nu există' }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(run));
+        return;
+      }
+      res.writeHead(405, { Allow: 'GET' });
       res.end();
       return;
     }
@@ -428,6 +599,9 @@ function createServer(options = {}) {
   // Rămâne disponibil separat pentru un apelant care vrea explicit doar
   // baza, fără să oprească HTTP-ul.
   server.closeProfilesStore = profilesStore.close;
+  // RF-02c: la fel, pentru `runsStore` — handle SQLite separat, ownership
+  // separat la închidere.
+  server.closeRunsStore = runsStore.close;
 
   // RF-02b-c: `closeProfilesStore` de mai sus nu ajută dacă apelantul
   // oprește serverul cu `.close()` direct pe obiectul brut (fără să treacă
@@ -437,9 +611,13 @@ function createServer(options = {}) {
   // nativ: dacă serverul n-a ascultat niciodată, callback-ul primește
   // eroarea `ERR_SERVER_NOT_RUNNING` exact ca înainte — noi doar o
   // propagăm mai departe, nu o înghițim și nu o transformăm.
+  // RF-02c: extinde ACELAȘI wrapper (nu creează altul paralel) — la orice
+  // închidere a serverului, se închide și `runsStore`, alături de
+  // `profilesStore`.
   const nativeClose = server.close.bind(server);
   server.close = (callback) => nativeClose((err) => {
     profilesStore.close();
+    runsStore.close();
     if (callback) callback(err);
   });
 
@@ -467,8 +645,9 @@ function startServer(options = {}) {
         server,
         address,
         port: address.port,
-        // RF-02b-c: `server.close()` închide și baza de profiluri automat
-        // (vezi wrapper-ul din `createServer`) — HTTP-ul se oprește întâi
+        // RF-02b-c/RF-02c: `server.close()` închide automat și
+        // profilesStore, și runsStore (vezi wrapper-ul din `createServer`)
+        // — HTTP-ul se oprește întâi
         // (așteaptă cererile active, comportamentul implicit al
         // http.Server#close()), abia apoi se închide baza, deci nu există
         // fereastră în care închiderea bazei să taie o cerere în curs.

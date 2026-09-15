@@ -18,7 +18,7 @@ Aplicația **încă nu se vede**. Lucrăm la fundație: serverul și baza de dat
 | RF-01 | face serverul sigur și testabil | ✅ gata, **urcat pe GitHub** |
 | RF-02a | baza de date: structura și migrațiile | ✅ gata (297/297 teste), **urcat pe GitHub** |
 | RF-02b | profilurile agenților, salvate permanent, cu API | ✅ gata (370/370 teste), **urcat pe GitHub** |
-| RF-02c | legarea sesiunilor reale de profiluri | ⬜ urmează |
+| RF-02c | sesiuni observate, asociere la profiluri | ✅ gata (442/442 teste), **aștept aprobarea ta pentru push** |
 | RF-03 | citirea reală din Pi și Claude Code | ⬜ |
 | RF-04 | **primul ecran vizibil**: tabele, arbore, inspector | ⬜ |
 | RF-05 | harta cu hexagoane, personaje, mișcare | ⬜ |
@@ -127,6 +127,25 @@ Acum poți: crea un profil de agent, îl poți aproba, îi poți schimba special
 
 ### 15-09 — PUSH: RF-02b pe GitHub
 Ai aprobat. **Commit `c1f215b`**, 13 fișiere, +2249 linii. Urcat pe `INFINITIMAX/RPGfactory`.
+
+### 15-09 — Ai cerut să prioritizăm partea vizuală
+Ai vrut să vezi ceva, nu doar terminalul. Ți-am arătat exact ce mai e până la primul ecran (RF-02c, RF-03, apoi RF-04) și am propus o scurtătură (ecran devreme, pe date reale dar prin drumul vechi). Ai ales să păstrăm ordinea strictă din plan — deci mergem mai departe normal, spre RF-02c.
+
+### 15-09 — RF-02c: pornit
+Ultimul lot din RF-02. Construim ideea de „sesiune observată" (`runs` — o execuție a unui agent, cu harness-ul ei, id-ul nativ, opțional legată de un profil) și regula „un profil nu poate avea două sesiuni active simultan, fără să fie semnalat" (I24). Încă nu citim nimic real din Pi/Claude — doar mecanismul, cu date de test. Trimis la coder.
+
+### 15-09 — RF-02c: livrat de coder, verificat de mine
+Am citit codul direct. Bine construit — inclusiv lecția de la RF-02b (închiderea corectă la oprirea serverului) aplicată corect din prima, fără să mai fie nevoie de o corecție separată. Trimis la tester.
+
+### 15-09 — RF-02c: teste gata, prima rulare curată
+**442 teste, toate trec, din prima încercare** — pentru prima dată în tot RF-02, niciun tur de corecție n-a mai fost necesar. Trimis la reviewer.
+
+### 15-09 — RF-02c: ÎNCHIS. RF-02 (toată fundația bazei de date) e gata.
+Reviewer-ul a acceptat, cu verificare specială tocmai fiindcă n-a fost nevoie de nicio corecție (ca să nu fie o verificare superficială) — a confirmat că regula „un profil, o singură execuție activă" chiar funcționează corect, inclusiv în cazuri neobișnuite (2 sesiuni active deodată, ceva ce n-ar trebui să existe dar dacă există tot trebuie arătat, nu ascuns).
+
+**Ce poți face acum, prin API (încă fără ecran)**: un profil de agent poate „vedea" o sesiune reală (odată ce RF-03 o conectează), poate fi legat explicit de ea, iar dacă cineva încearcă să pornească a doua sesiune pe același profil în același timp, sistemul refuză clar, nu se preface că nu s-a întâmplat.
+
+**Nu am urcat încă pe GitHub.** Aștept aprobarea ta.
 
 ### 15-09, seara — SESIUNEA S-A ÎNCHEIAT AICI
 
