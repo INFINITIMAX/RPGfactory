@@ -71,6 +71,20 @@ Am deschis din nou pagina într-un browser real, cu un profil căruia i-am ataș
 
 **RF-05c închis. RF-05 (harta) e complet închis** — toate cele trei bucăți (algoritm, desen+memorie, personaje+animație) sunt gata. Reviewer: ACCEPT. 567/567 teste.
 
+### 15-09 — Ai văzut harta goală și ai cerut: iarbă + clădiri
+Am pornit serverul tău (5311) ca să vezi harta — dar era complet goală, pentru că nu există încă niciun profil în baza ta de date reală (normal, RF-03b/Pi și crearea profilurilor n-au fost făcute încă). Separat de asta, ai observat că harta n-are deloc teren/fundal vizibil sau clădiri — corect, era o decizie deliberată („estetica fină e backlog", scris în `spec.md`), nu o omisiune. Ai cerut explicit să adăugăm acum, ca lot nou (RF-05d), un fundal de teren și câte o clădire simplă per proiect. Brief trimis coder-ului: `docs/handoff/RF-05d-coder.md`. Am creat și 4 profiluri de test direct în baza ta reală (`specialist-test-1..4`), ca să vezi imediat harta populată — se pot șterge oricând le ceri.
+
+### 15-09 — RF-05d respins de reviewer (defect geometric mic, real)
+Am verificat eu vizual (arăta bine la ochi), dar reviewer-ul a calculat exact: colțul acoperișului clădirii ieșea cu ~1.9px în afara hexagonului — coder-ul verificase distanța față de o rază de cerc, nu față de muchia reală a hexagonului (care e mai aproape de centru lângă colțuri). Defect minor, dar real și corect semnalat.
+
+### 15-09 — Ai cerut sprite-uri reale din Tiny Swords, nu forme desenate
+În loc să reparăm cei 1.9px, am mers direct la ce ai cerut: sprite-uri adevărate din pachetul Tiny Swords (deja licențiat, deja folosit de jocul vechi — `assets/README.md`). Am găsit că jocul vechi are deja exact sprite-urile care ne trebuie, gata exportate (`public/sprites/`): un petic de iarbă, un turn, un personaj cu animație de stat și una de mers. RF-05d e înlocuit complet de **RF-05e**, care portează tehnica deja verificată din jocul vechi, cu grijă specială la geometrie (ca să nu repetăm greșeala de la RF-05d). Vezi `docs/handoff/RF-05e-coder.md`.
+
+### 16-09 — RF-05e închis: harta arată cu sprite-uri reale
+Coder-ul a portat exact tehnica din jocul vechi și a recalculat singur geometria (valorile mele de pornire din brief chiar depășeau puțin hexagonul — le-a corectat înainte să le predea). Am verificat eu, de două ori, independent: o dată prin calcul geometric (marje mici dar pozitive, ~1.4px, calculate corect față de muchia hexagonului, nu față de o rază de cerc ca la greșeala de la RF-05d), o dată vizual, direct pe serverul tău real — iarba se vede clar, turnulețele și personajele apar ca sprite-uri mici, corect poziționate. Am verificat și că sprite-urile de personaj sunt cu adevărat transparente (nu doar presupus). Reviewer-ul a refăcut și el calculul de la zero: ACCEPT.
+
+**RF-05d rămâne respins ca defect istoric, nu se repară — RF-05e îl înlocuiește complet.**
+
 ---
 
 ## UNDE VREM SĂ AJUNGEM
