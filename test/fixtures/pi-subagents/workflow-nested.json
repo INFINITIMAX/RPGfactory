@@ -1,0 +1,46 @@
+{
+  "runId": "workflow-root",
+  "state": "queued",
+  "startedAt": 2000,
+  "totalTokens": { "total": 100 },
+  "usage": { "total": 9999 },
+  "needs_attention": true,
+  "active_long_running": true,
+  "steps": [
+    {
+      "runId": "step-a",
+      "status": "running",
+      "state": "failed",
+      "startedAt": 2010,
+      "activityState": "active_long_running",
+      "tokens": { "input": 20, "output": 5, "total": 25 },
+      "usage": { "total": 8888 },
+      "nested": [{ "id": "ignored-nested" }],
+      "children": [
+        {
+          "id": "nested-a",
+          "parentRunId": "step-a",
+          "state": "complete",
+          "startedAt": 2020,
+          "totalTokens": { "input": 3, "output": 2, "total": 5 },
+          "children": [
+            {
+              "id": "nested-b",
+              "state": "paused",
+              "startedAt": 2030,
+              "totalTokens": { "total": 2 },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "childId": "step-b-child-id",
+      "status": "pending",
+      "startedAt": 2040,
+      "tokens": { "total": 1 },
+      "children": []
+    }
+  ]
+}

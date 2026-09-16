@@ -1,0 +1,14 @@
+{
+  "runId": "single-root",
+  "state": "running",
+  "startedAt": 1000,
+  "activityState": "needs_attention",
+  "currentTool": "read",
+  "agent": "planner",
+  "phase": "analysis",
+  "label": "Synthetic single run",
+  "mode": "default",
+  "model": "synthetic-model",
+  "totalTokens": { "input": 11, "output": 7, "total": 18, "window": 128, "windowPeak": 64 },
+  "steps": []
+}

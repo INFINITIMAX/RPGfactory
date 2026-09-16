@@ -1,0 +1,33 @@
+{
+  "runId": "limits-root",
+  "state": "running",
+  "startedAt": 5000,
+  "steps": [
+    {
+      "runId": "limit-step-a",
+      "status": "running",
+      "startedAt": 5010,
+      "children": [
+        {
+          "id": "limit-nested-a",
+          "state": "running",
+          "startedAt": 5020,
+          "children": [
+            {
+              "id": "limit-nested-deep",
+              "state": "running",
+              "startedAt": 5030,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "runId": "limit-step-b",
+      "status": "running",
+      "startedAt": 5040,
+      "children": []
+    }
+  ]
+}

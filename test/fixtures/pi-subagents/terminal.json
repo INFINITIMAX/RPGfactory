@@ -1,0 +1,14 @@
+{
+  "runId": "terminal-root",
+  "state": "complete",
+  "startedAt": 3000,
+  "steps": [
+    { "runId": "queued-step", "status": "queued", "startedAt": 3001 },
+    { "runId": "completed-step", "status": "completed", "startedAt": 3002 },
+    { "runId": "failed-step", "status": "failed", "startedAt": 3003 },
+    { "runId": "stopped-step", "status": "stopped", "startedAt": 3004 },
+    { "runId": "paused-step", "status": "paused", "startedAt": 3005 },
+    { "runId": "partial-step", "status": "partial", "startedAt": 3006 },
+    { "runId": "rejected-step", "status": "rejected", "startedAt": 3007 }
+  ]
+}

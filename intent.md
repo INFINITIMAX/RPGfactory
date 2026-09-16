@@ -3,8 +3,8 @@
 > **Precedență:** `instructiuni.md` are prioritate peste tot ce s-a muncit până acum în proiect. Dacă acest fișier îl contrazice, `instructiuni.md` câștigă. Vezi `AGENTS.md` § „Precedența documentelor”.
 
 
-Actualizat: 14-09-2026.
-Status: intenție de produs confirmată în interviu. **Primul lot de cod (RF-01 — izolare și siguranță) este autorizat** (gate G4a). Arhitectura tehnică nouă (SQLite, model canonic — RF-02 și dependenții) rămâne în aprobare (gate G4b). Implementarea nouă nu este încă începută.
+Actualizat: 16-09-2026.
+Status: fundația RF-01–RF-05 și prototipul RF-UI-01 există. Lucian a aprobat pivotul **single-kingdom-first** și începerea RF-K01. RF-UI-01 rămâne prototip tehnic, nu direcția finală. Prima dependență este integrarea Pi reală; activarea globală a reporterului rămâne gate separat.
 
 ## Problema
 
@@ -12,7 +12,7 @@ Lucian are nevoie să vadă clar agenții reali din **Pi și Claude Code**: cine
 
 ## Rezultat propus
 
-Consolă locală de observabilitate și administrare a profilurilor, cu o lume medievală 2D. **Un repo = un regat**, extensibil prin celule hexagonale adiacente. Hartă dominantă, panou operațional în dreapta, zoom progresiv și focalizare pe proiect.
+Consolă locală de observabilitate și administrare a profilurilor, cu o lume medievală 2D. **Un repo = un regat**, extensibil prin celule hexagonale adiacente. Construim și acceptăm întâi un singur regat complet și viu; multi-regatul vine numai după această dovadă. Harta este dominantă, iar meniurile folosesc limbajul vizual Tiny Swords fără a sacrifica DOM-ul accesibil.
 
 Baza funcțională este tabloul **Bot Crossing**, nu un subset presupus echivalent. Folosim referința activă și putem reutiliza codul cu respectarea MIT. Tema se adaptează incremental; dacă o componentă nu poate fi adaptată încă, îi păstrăm comportamentul/interfața originală funcțională. Nu importăm rendererul 3D doar pentru a păstra aspectul.
 
@@ -20,11 +20,13 @@ Scopul de prezentare publică rămâne secundar. Estetica fină și alegerea cl�
 
 ## Cerințe confirmate
 
-Sursa completă: [docs/DECISIONS.md](docs/DECISIONS.md), I01–I43.
+Sursa completă: [docs/DECISIONS.md](docs/DECISIONS.md), I01–I46.
 
 ### Observabilitate
 
 - Pi și Claude Code simultan; Herdr nu este harness.
+- Primul slice urmărește un singur proiect și arată run-uri Pi reale, relațiile lor și activitatea disponibilă în timp ce se întâmplă.
+- Mining-ul apare numai pentru `running` confirmat; fiecare piesă de aur reprezintă o dovadă discretă inspectabilă, nu timp sau procent.
 - Stare, activitate declarată, task, ierarhie și prospețime distincte, cu proveniență.
 - Blocaj confirmat, posibil blocaj, așteptare de răspuns și telemetrie lipsă nu se confundă.
 - Progres = etapă și criterii verificate; nu transcript size sau tokenuri.
@@ -64,7 +66,9 @@ Sursa completă: [docs/DECISIONS.md](docs/DECISIONS.md), I01–I43.
 - Leveling complet, antrenare ori memorie avansată în primul lot.
 - Suport nou pentru alte harness-uri decât Pi/Claude Code fără decizie separată; existența unor adaptoare upstream se consemnează în inventar.
 - Arhivarea automată a transcripturilor brute, secrete, fișiere `.env` sau date private în Git.
-- Un nou redesign estetic înainte de date corecte și funcționalitate.
+- O hartă multi-regat înainte ca regatul unic să treacă proba cap-coadă.
+- Activitate, ierarhie, usage, progres sau aur simulate.
+- Un fork direct Bot Crossing ca bază principală; reutilizarea selectivă MIT rămâne permisă și preferată.
 
 ## Stare reală
 
@@ -74,8 +78,9 @@ Implementările T-01–T-19 și rapoartele lor rămân istorie, nu o certificare
 
 ## Pași și aprobare
 
-1. Consolidare și verificare a specificației/planului, cu propunerile tehnice etichetate.
-2. **RF-01 (izolare + siguranță) este autorizat** și nu mai așteaptă o aprobare generală — gate G4a, `instructiuni.md` §1/§13. Păstrează stocarea JSON.
-3. **Arhitectura nouă (SQLite, model canonic) cere aprobare separată înainte de RF-02** — gate G4b. Nu blochează RF-01.
-4. Build incremental în fluxul planner → coder → tester → reviewer, cu dovezi rulate de planner.
-5. Gate separat pentru activarea integrărilor globale, migrare, push și deploy.
+1. **RF-K01a:** contract pur și fixture-uri sanitizate pentru `pi-subagents`.
+2. **RF-K01b:** adaptor read-only pentru lifecycle artifacts + cod de reporter opt-in; instalarea/activarea globală cere aprobare separată.
+3. **RF-K01c–e:** regat unic viu, mining/work proof și meniuri Tiny Swords accesibile.
+4. **RF-K01f:** workflow real planner → coder → tester → reviewer, verificat cap-coadă.
+5. Multi-regatul se deschide numai după acceptarea RF-K01.
+6. Build incremental în fluxul planner → coder → tester → reviewer, cu dovezi rulate de planner. Migrarea datelor reale, oprirea serviciilor, push-ul și deploy-ul au gate separat.

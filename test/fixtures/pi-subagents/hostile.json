@@ -1,0 +1,45 @@
+{
+  "runId": "hostile-root",
+  "state": "running",
+  "startedAt": 4000,
+  "description": "SYNTHETIC_PRIVATE_DESCRIPTION_ROOT",
+  "prompt": "SYNTHETIC_PRIVATE_PROMPT_ROOT",
+  "task": "SYNTHETIC_PRIVATE_TASK_ROOT",
+  "currentToolArgs": "SYNTHETIC_PRIVATE_ARGS_ROOT",
+  "recentOutput": "SYNTHETIC_PRIVATE_OUTPUT_ROOT",
+  "error": "SYNTHETIC_PRIVATE_ERROR_ROOT",
+  "sessionPath": "SYNTHETIC_PRIVATE_SESSION_PATH_ROOT",
+  "transcriptPath": "SYNTHETIC_PRIVATE_TRANSCRIPT_PATH_ROOT",
+  "artifactPath": "SYNTHETIC_PRIVATE_ARTIFACT_PATH_ROOT",
+  "unknownPayload": "SYNTHETIC_PRIVATE_UNKNOWN_ROOT",
+  "currentTool": "C:\\synthetic\\private-tool",
+  "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "steps": [
+    {
+      "runId": "hostile-step",
+      "status": "running",
+      "startedAt": 4010,
+      "description": "SYNTHETIC_PRIVATE_DESCRIPTION_STEP",
+      "prompt": "SYNTHETIC_PRIVATE_PROMPT_STEP",
+      "args": "SYNTHETIC_PRIVATE_ARGS_STEP",
+      "output": "SYNTHETIC_PRIVATE_OUTPUT_STEP",
+      "error": "SYNTHETIC_PRIVATE_ERROR_STEP",
+      "cwd": "SYNTHETIC_PRIVATE_CWD_STEP",
+      "currentTool": "tool\u0001name",
+      "children": [
+        {
+          "id": "hostile-nested",
+          "state": "running",
+          "startedAt": 4020,
+          "description": "SYNTHETIC_PRIVATE_DESCRIPTION_NESTED",
+          "task": "SYNTHETIC_PRIVATE_TASK_NESTED",
+          "recentOutput": "SYNTHETIC_PRIVATE_OUTPUT_NESTED",
+          "rawError": "SYNTHETIC_PRIVATE_ERROR_NESTED",
+          "artifact": "SYNTHETIC_PRIVATE_ARTIFACT_NESTED",
+          "unknownPayload": "SYNTHETIC_PRIVATE_UNKNOWN_NESTED",
+          "children": []
+        }
+      ]
+    }
+  ]
+}
