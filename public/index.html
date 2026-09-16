@@ -1,65 +1,98 @@
 <!doctype html>
-<html>
+<html lang="ro">
 <head>
-<meta charset="utf-8">
-<title>RPGfactory — consolă</title>
-<link rel="stylesheet" href="hud.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RPG Factory — masa de comandă</title>
+  <link rel="stylesheet" href="hud.css">
 </head>
 <body>
   <header id="topbar">
-    <h1>RPGfactory</h1>
-    <div id="connection-indicator" class="connection connection-connected">conectat</div>
+    <a class="brand" href="#world-section" aria-label="RPG Factory, mergi la hartă">
+      <span class="brand-mark" aria-hidden="true"><span></span></span>
+      <span><strong>RPG Factory</strong><small>Consola breslei</small></span>
+    </a>
+    <div class="topbar-center" aria-hidden="true">
+      <span class="rule"></span><span>Masa de comandă</span><span class="rule"></span>
+    </div>
+    <div id="connection-indicator" class="connection connection-retrying" role="status" aria-live="polite">
+      <span class="connection-dot" aria-hidden="true"></span>
+      <span id="connection-label">conectare…</span>
+    </div>
   </header>
 
   <main id="main">
-    <section id="world-section">
-      <h2>Hartă</h2>
-      <div id="world-canvas-wrap">
-        <canvas id="world-canvas" width="800" height="480"></canvas>
+    <section id="world-section" aria-labelledby="world-heading">
+      <div class="world-heading">
+        <h1 id="world-heading">Harta regatelor</h1>
+        <div class="map-controls" aria-label="Controale hartă">
+          <button id="map-zoom-out" type="button" aria-label="Micșorează harta">-</button>
+          <output id="map-zoom-value" aria-live="polite">100%</output>
+          <button id="map-zoom-in" type="button" aria-label="Mărește harta">+</button>
+          <button id="map-reset" class="reset-control" type="button">Resetează</button>
+        </div>
       </div>
+      <div id="world-canvas-wrap">
+        <canvas id="world-canvas" width="960" height="720" tabindex="0" role="img"
+          aria-label="Hartă interactivă a proiectelor și specialiștilor"
+          aria-describedby="world-description world-status"></canvas>
+        <p id="world-description" class="sr-only">Folosește controalele pentru zoom. Trage harta cu pointerul. Lista accesibilă de sub hartă conține aceiași specialiști.</p>
+        <div class="map-compass" aria-hidden="true"><span>N</span><i></i></div>
+        <div id="world-status" class="world-status" role="status" aria-live="polite">Se încarcă harta…</div>
+      </div>
+      <div id="world-pawn-list" class="sr-only canvas-alternative" aria-label="Specialiștii de pe hartă"></div>
     </section>
 
-    <section id="profiles-section">
-      <h2>Profiluri (ierarhie necunoscută)</h2>
-      <table id="profiles-table">
-        <thead>
-          <tr>
-            <th>nume</th>
-            <th>specializare</th>
-            <th>stare aprobare</th>
-            <th>eligibil</th>
-            <th>ultim proiect</th>
-          </tr>
-        </thead>
-        <tbody id="profiles-tbody"></tbody>
-      </table>
+    <aside id="operations-rail" aria-label="Registrul operațional">
+      <div id="rail-overview">
+        <section class="rail-section summary-section" aria-labelledby="summary-title">
+          <div class="section-heading">
+            <h2 id="summary-title">Flotă</h2>
+            <span id="summary-projects" class="count-badge">0 proiecte</span>
+          </div>
+          <dl class="summary-grid">
+            <div><dt>Profiluri</dt><dd id="summary-profiles">0</dd></div>
+            <div><dt>Sesiuni</dt><dd id="summary-runs">0</dd></div>
+            <div><dt>În execuție</dt><dd id="summary-running">0</dd></div>
+            <div><dt>Neasociate</dt><dd id="summary-unassociated">0</dd></div>
+          </dl>
+        </section>
 
-      <form id="create-profile-form">
-        <h3>Profil nou</h3>
-        <label>nume <input type="text" id="create-profile-name" required></label>
-        <label>specializare <input type="text" id="create-profile-specialization"></label>
-        <button type="submit">Creează profil</button>
-        <span id="create-profile-error" class="action-error"></span>
-      </form>
-    </section>
+        <section id="profiles-section" class="rail-section" aria-labelledby="profiles-title">
+          <div class="section-heading"><h2 id="profiles-title">Specialiști</h2><span id="profiles-count" class="count-badge">0</span></div>
+          <div class="table-scroll">
+            <table id="profiles-table">
+              <thead><tr><th>Profil</th><th>Specializare</th><th>Aprobare</th><th>Eligibil</th><th>Proiect</th></tr></thead>
+              <tbody id="profiles-tbody"></tbody>
+            </table>
+          </div>
+          <details class="create-profile">
+            <summary>Adaugă profil</summary>
+            <form id="create-profile-form">
+              <label for="create-profile-name">Nume</label>
+              <input type="text" id="create-profile-name" autocomplete="off" required>
+              <label for="create-profile-specialization">Specializare</label>
+              <input type="text" id="create-profile-specialization" autocomplete="off">
+              <button id="create-profile-submit" type="submit">Creează profil</button>
+              <span id="create-profile-error" class="action-error" role="alert"></span>
+            </form>
+          </details>
+        </section>
 
-    <section id="runs-section">
-      <h2>Sesiuni observate</h2>
-      <table id="runs-table">
-        <thead>
-          <tr>
-            <th>harness</th>
-            <th>proiect</th>
-            <th>stare</th>
-            <th>profil asociat</th>
-          </tr>
-        </thead>
-        <tbody id="runs-tbody"></tbody>
-      </table>
-    </section>
+        <section id="runs-section" class="rail-section" aria-labelledby="runs-title">
+          <div class="section-heading"><h2 id="runs-title">Sesiuni observate</h2><span id="runs-count" class="count-badge">0</span></div>
+          <div class="table-scroll">
+            <table id="runs-table">
+              <thead><tr><th>Harness</th><th>Proiect</th><th>Stare</th><th>Profil</th></tr></thead>
+              <tbody id="runs-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <section id="inspector" class="rail-inspector hidden" aria-label="Inspector selecție" aria-live="polite"></section>
+    </aside>
   </main>
-
-  <aside id="inspector" class="hidden"></aside>
 
   <script src="hud.js"></script>
   <script src="world.js"></script>

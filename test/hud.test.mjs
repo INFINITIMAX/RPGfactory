@@ -51,8 +51,11 @@ class FakeElement {
     this.parentNode = null;
     this._classes = new Set();
     this._listeners = {};
+    this._attributes = new Map();
     this._text = '';
     this.value = '';
+    this.tabIndex = -1;
+    this.disabled = false;
   }
 
   // hud.js nu amestecă niciodată noduri de text cu elemente ca frați direct
@@ -108,11 +111,14 @@ class FakeElement {
   }
 
   get textContent() {
+    if (this.childNodes.length) return this._text + this.childNodes.map((node) => node.textContent).join('');
     return this._text;
   }
 
   set textContent(v) {
-    this._text = v;
+    for (const child of this.childNodes) child.parentNode = null;
+    this.childNodes = [];
+    this._text = String(v);
   }
 
   // Capcană explicită: hud.js NU are voie să folosească innerHTML cu date
@@ -148,12 +154,26 @@ class FakeElement {
     };
   }
 
+  setAttribute(name, value) {
+    this._attributes.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this._attributes.has(name) ? this._attributes.get(name) : null;
+  }
+
+  removeAttribute(name) {
+    this._attributes.delete(name);
+  }
+
   addEventListener(type, fn) {
     (this._listeners[type] = this._listeners[type] || []).push(fn);
   }
 
   dispatch(type, ev) {
-    (this._listeners[type] || []).forEach((fn) => fn(ev));
+    let result;
+    for (const fn of this._listeners[type] || []) result = fn(ev);
+    return result;
   }
 }
 
@@ -181,6 +201,13 @@ function flush() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
 // --- încărcarea hud.js în sandbox --------------------------------------------
 
 async function loadHud() {
@@ -188,21 +215,30 @@ async function loadHud() {
     profilesTbody: new FakeElement('tbody'),
     runsTbody: new FakeElement('tbody'),
     connectionIndicatorEl: new FakeElement('div'),
+    connectionDotEl: new FakeElement('span'),
+    connectionLabelEl: new FakeElement('span'),
     inspectorEl: new FakeElement('aside'),
     createProfileForm: new FakeElement('form'),
     createProfileNameInput: new FakeElement('input'),
     createProfileSpecializationInput: new FakeElement('input'),
+    createProfileSubmitEl: new FakeElement('button'),
     createProfileErrorEl: new FakeElement('span'),
   };
+  elements.connectionDotEl.classList.add('connection-dot');
+  elements.connectionLabelEl.textContent = 'conectare…';
+  elements.connectionIndicatorEl.appendChild(elements.connectionDotEl);
+  elements.connectionIndicatorEl.appendChild(elements.connectionLabelEl);
 
   const idMap = {
     'profiles-tbody': elements.profilesTbody,
     'runs-tbody': elements.runsTbody,
     'connection-indicator': elements.connectionIndicatorEl,
+    'connection-label': elements.connectionLabelEl,
     inspector: elements.inspectorEl,
     'create-profile-form': elements.createProfileForm,
     'create-profile-name': elements.createProfileNameInput,
     'create-profile-specialization': elements.createProfileSpecializationInput,
+    'create-profile-submit': elements.createProfileSubmitEl,
     'create-profile-error': elements.createProfileErrorEl,
   };
 
@@ -326,6 +362,25 @@ async function loadHud() {
     return id;
   }
 
+  const windowListeners = {};
+  const dispatchedWindowEvents = [];
+  const fakeWindow = {
+    addEventListener(type, fn) {
+      (windowListeners[type] = windowListeners[type] || []).push(fn);
+    },
+    dispatchEvent(event) {
+      dispatchedWindowEvents.push(event);
+      for (const fn of windowListeners[event.type] || []) fn(event);
+      return true;
+    },
+  };
+  class FakeCustomEvent {
+    constructor(type, init = {}) {
+      this.type = type;
+      this.detail = init.detail;
+    }
+  }
+
   const sandbox = {
     document: {
       getElementById: (id) => {
@@ -335,6 +390,8 @@ async function loadHud() {
       createElement: (tag) => new FakeElement(tag),
       createTextNode,
     },
+    window: fakeWindow,
+    CustomEvent: FakeCustomEvent,
     fetch: (url, opts) => mockFetch(url, opts),
     setTimeout: fakeSetTimeout,
     console,
@@ -348,8 +405,80 @@ async function loadHud() {
   // suficient să-l lase să se termine, la fel ca în test/app.test.mjs.
   await flush();
 
-  return { sandbox, elements, state, flags, impls, calls, pendingProfilesGets, pendingRunsGets, pendingTimers };
+  return { sandbox, elements, state, flags, impls, calls, pendingProfilesGets, pendingRunsGets, pendingTimers, dispatchedWindowEvents };
 }
+
+// === 2.0 accesibilitate și selecție sincronizată ============================
+
+test('rândul de profil este operabil semantic și Enter/Space deschid același profil', async () => {
+  const app = await loadHud();
+  app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-keyboard', name: 'Ada' }));
+  const row = app.elements.profilesTbody.childNodes[0];
+
+  assert.equal(row.tabIndex, 0);
+  assert.equal(row.getAttribute('role'), 'button');
+  assert.match(row.getAttribute('aria-label'), /Ada/);
+
+  for (const key of ['Enter', ' ']) {
+    let prevented = false;
+    row.dispatch('keydown', { key, preventDefault() { prevented = true; } });
+    assert.equal(prevented, true, `${JSON.stringify(key)} trebuie să oprească acțiunea implicită`);
+    assert.equal(findFieldValue(app.elements.inspectorEl, 'nume'), 'Ada');
+  }
+});
+
+test('selecția profilului din HUD emite focus către lume cu profileId-ul exact', async () => {
+  const app = await loadHud();
+  app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-focus' }));
+
+  app.sandbox.selectProfile('p-focus');
+
+  const event = app.dispatchedWindowEvents.find((item) => item.type === 'rpg:profile-selected');
+  assert.ok(event, 'selecția din HUD nu a emis evenimentul pentru hartă');
+  assert.equal(event.detail.profileId, 'p-focus');
+});
+
+test('selecția pawn-ului din lume deschide profilul corespunzător fără buclă de evenimente', async () => {
+  const app = await loadHud();
+  app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-world', name: 'Pawn real' }));
+  const before = app.dispatchedWindowEvents.length;
+
+  app.sandbox.window.dispatchEvent(new app.sandbox.CustomEvent('rpg:world-profile-select', { detail: { profileId: 'p-world' } }));
+
+  assert.equal(findFieldValue(app.elements.inspectorEl, 'nume'), 'Pawn real');
+  const emittedBack = app.dispatchedWindowEvents.slice(before + 1).filter((event) => event.type === 'rpg:profile-selected');
+  assert.equal(emittedBack.length, 0, 'selecția venită din lume nu trebuie retrimisă lumii într-o buclă');
+});
+
+test('selectarea unui run asociat mută focusul hărții la profilul asociat', async () => {
+  const app = await loadHud();
+  app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-anterior' }));
+  app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-asociat' }));
+  app.sandbox.applyUpdatedRun(baseRun({ id: 'r-asociat', profile_id: 'p-asociat' }));
+  app.sandbox.selectProfile('p-anterior');
+  const beforeRun = app.dispatchedWindowEvents.length;
+
+  app.sandbox.selectRun('r-asociat');
+
+  const events = app.dispatchedWindowEvents.slice(beforeRun).filter((event) => event.type === 'rpg:profile-selected');
+  assert.equal(events.length, 1);
+  assert.equal(events[0].detail.profileId, 'p-asociat');
+  assert.equal(findFieldValue(app.elements.inspectorEl, 'id nativ'), 'n1');
+});
+
+test('selectarea unui run neasociat golește explicit focusul pawn-ului anterior', async () => {
+  const app = await loadHud();
+  app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-anterior' }));
+  app.sandbox.applyUpdatedRun(baseRun({ id: 'r-neasociat', profile_id: null }));
+  app.sandbox.selectProfile('p-anterior');
+  const beforeRun = app.dispatchedWindowEvents.length;
+
+  app.sandbox.selectRun('r-neasociat');
+
+  const events = app.dispatchedWindowEvents.slice(beforeRun).filter((event) => event.type === 'rpg:profile-selected');
+  assert.equal(events.length, 1);
+  assert.equal(events[0].detail.profileId, null);
+});
 
 // === 2.1 reconcileTable ======================================================
 
@@ -671,7 +800,64 @@ test('răspuns non-OK (ex. 500) de la /api/profiles sau /api/runs e tratat ca e�
   assert.ok(app.elements.connectionIndicatorEl.classList.contains('connection-retrying'));
 });
 
+test('setConnectionState păstrează punctul vizual și actualizează numai eticheta dedicată', async () => {
+  const app = await loadHud();
+  const dot = app.elements.connectionDotEl;
+  const label = app.elements.connectionLabelEl;
+
+  app.sandbox.setConnectionState(true);
+  assert.strictEqual(app.elements.connectionIndicatorEl.childNodes[0], dot);
+  assert.strictEqual(app.elements.connectionIndicatorEl.childNodes[1], label);
+  assert.ok(dot.classList.contains('connection-dot'));
+  assert.equal(label.textContent, 'conectat');
+
+  app.sandbox.setConnectionState(false);
+  assert.strictEqual(app.elements.connectionIndicatorEl.childNodes[0], dot);
+  assert.equal(label.textContent, 'reîncercăm...');
+});
+
 // === 2.5 Acțiunile ===========================================================
+
+test('approveProfile pending blochează dublarea și eliberează disabled/aria-busy la succes', async () => {
+  const app = await loadHud();
+  const wait = deferred();
+  const errorEl = app.sandbox.document.createElement('span');
+  const trigger = app.sandbox.document.createElement('button');
+  app.impls.patchProfile = () => wait.promise;
+
+  const first = app.sandbox.approveProfile(baseProfile(), errorEl, trigger);
+  const duplicate = app.sandbox.approveProfile(baseProfile(), errorEl, trigger);
+
+  assert.equal(trigger.disabled, true);
+  assert.equal(app.elements.inspectorEl.getAttribute('aria-busy'), 'true');
+  assert.match(errorEl.textContent, /aprobă/i);
+  assert.equal(app.calls.patchProfile.length, 1, 'a doua activare pending nu trebuie să expedieze alt PATCH');
+
+  await duplicate;
+  wait.resolve({ ok: true, status: 200, json: async () => baseProfile({ approval_state: 'approved', revision: 2 }) });
+  await first;
+
+  assert.equal(trigger.disabled, false);
+  assert.equal(app.elements.inspectorEl.getAttribute('aria-busy'), null);
+});
+
+test('approveProfile pending eliberează disabled/aria-busy și păstrează eroarea la eșec', async () => {
+  const app = await loadHud();
+  const wait = deferred();
+  const errorEl = app.sandbox.document.createElement('span');
+  const trigger = app.sandbox.document.createElement('button');
+  app.impls.patchProfile = () => wait.promise;
+
+  const pending = app.sandbox.approveProfile(baseProfile(), errorEl, trigger);
+  assert.equal(trigger.disabled, true);
+  assert.equal(app.elements.inspectorEl.getAttribute('aria-busy'), 'true');
+  wait.reject(new Error('rețea căzută'));
+  await pending;
+
+  assert.equal(trigger.disabled, false);
+  assert.equal(app.elements.inspectorEl.getAttribute('aria-busy'), null);
+  assert.equal(errorEl.textContent, 'cererea a eșuat');
+});
 
 test('approveProfile: succes aplică profilul din răspuns și golește eroarea locală', async () => {
   const app = await loadHud();
@@ -827,6 +1013,31 @@ test('dissociateRun: eșec 404 afișează mesajul serverului', async () => {
   await app.sandbox.dissociateRun(baseRun({ revision: 1 }), errorEl);
 
   assert.equal(errorEl.textContent, 'run inexistent');
+});
+
+test('formularul pending este aria-busy, dezactivează submit-ul și nu dublează POST-ul', async () => {
+  const app = await loadHud();
+  const wait = deferred();
+  app.elements.createProfileNameInput.value = 'Profil pending';
+  app.impls.createProfile = () => wait.promise;
+
+  const first = app.elements.createProfileForm.dispatch('submit', { preventDefault() {} });
+  assert.equal(app.elements.createProfileSubmitEl.disabled, true);
+  assert.equal(app.elements.createProfileForm.getAttribute('aria-busy'), 'true');
+  assert.match(app.elements.createProfileErrorEl.textContent, /creează/i);
+
+  const duplicate = app.elements.createProfileForm.dispatch('submit', { preventDefault() {} });
+  assert.equal(app.elements.createProfileSubmitEl.disabled, true);
+  assert.equal(app.elements.createProfileForm.getAttribute('aria-busy'), 'true');
+  assert.equal(app.calls.createProfile.length, 1);
+  assert.match(app.elements.createProfileErrorEl.textContent, /creează/i, 'activarea duplicată nu trebuie să șteargă mesajul pending');
+
+  await duplicate;
+  wait.resolve({ ok: false, status: 400, json: async () => ({ error: 'nume deja folosit' }) });
+  await first;
+  assert.equal(app.elements.createProfileSubmitEl.disabled, false);
+  assert.equal(app.elements.createProfileForm.getAttribute('aria-busy'), null);
+  assert.equal(app.elements.createProfileErrorEl.textContent, 'nume deja folosit');
 });
 
 test('formularul de creare profil: nume gol (sau doar spații) produce eroare locală, FĂRĂ nicio cerere trimisă', async () => {

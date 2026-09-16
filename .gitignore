@@ -14,6 +14,11 @@ assets/
 public/sprites/
 public/ui/
 
+# referințe furnizate de utilizator și artefacte locale generate de tool-uri
+/INspiratie/
+/.playwright-cli/
+/.impeccable/
+
 # documente de planificare/coordonare — rămân locale, nu intră în repo
 # (decizie Lucian, 14-09-2026; nu afectează HANDOFF.md/intent.md/docs/handoff/T-*,
 #  care erau deja urmărite înainte de această regulă)

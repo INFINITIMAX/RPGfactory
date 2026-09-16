@@ -20,21 +20,65 @@ Aplicația **se vede** — hartă cu hexagoane, personaje, iarbă și clădiri, 
 | RF-02b | profilurile agenților, salvate permanent, cu API | ✅ gata (370/370 teste), **urcat pe GitHub** |
 | RF-02c | sesiuni observate, asociere la profiluri | ✅ gata (442/442 teste), **urcat pe GitHub** |
 | RF-03a | citirea reală din Claude Code | ✅ gata (459/459 teste), **urcat pe GitHub** |
-| RF-03b | citirea reală din Pi + reporter | ⬜ **mutat mai jos** — Lucian a ales harta întâi |
+| RF-03b | citirea reală din Pi + reporter | ⬜ **următoarea dependență** pentru regatul viu |
 | RF-04 | **primul ecran vizibil**: tabele, inspector | ✅ gata (497/497 teste), **urcat pe GitHub** |
 | RF-05 | harta: hexagoane, memorie, personaje, sprite-uri reale | ✅ **gata complet** (RF-05a/b/c/e — RF-05d respins, înlocuit), 567/567 teste, **urcat pe GitHub** |
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
-| RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ |
+| RF-K01 | un singur regat viu: Pi, ierarhie, mining/work proof, meniuri Tiny Swords | ⬜ următorul lot major |
+| RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ numai după acceptarea regatului unic |
 
-**Pe GitHub:** ultimul urcat e `a6ee77e` (RF-05e). Nimic nesalvat local — verificat explicit, `git status` curat.
+**Pe GitHub:** HEAD este `3c1c55b` (corecție de jurnal); ultimul commit cu funcționalitate este `a6ee77e` (RF-05e). La începutul auditului din 16-09-2026, localul și GitHub erau identice și checkout-ul era curat. Auditul a adăugat doar raportul local și această actualizare de jurnal; nu s-a făcut commit sau push.
 
 **Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. **Serverul tău de pe portul 5311 rulează** (l-am pornit eu, 15-09-2026, la cererea ta, ca să vezi harta — `node --env-file=.env server.js`, în fundal, PID poate diferi dacă a fost repornit între timp). Am creat manual 4 profiluri de test (`specialist-test-1..4`) direct în baza ta reală, doar ca să populeze harta pentru verificare — pot fi șterse oricând ceri.
 
 **Documente care NU sunt pe GitHub, doar local** (decizia ta, 14-09-2026, reconfirmată 16-09-2026): `instructiuni.md`, `AGENTS.md`, `TASKS.md`, `GATES.md`, `spec.md`, `plan.md`, `docs/DECISIONS.md`, `docs/PARITY.md`, `docs/INTEGRATIONS.md`. Dacă vreodată se pierde acest folder de pe disc, guvernanța proiectului se pierde cu el — doar codul rămâne pe GitHub.
 
-**Deschis, nerezolvat:** ai spus, 15-09-2026 seara, că nu ești mulțumit de direcție — motivul confirmat: rezultatul vizual (harta) nu arată cum ți-ai imaginat, chiar și cu sprite-urile reale din RF-05e. Nu ai clarificat încă exact ce anume — am întrebat, aștept răspuns. **Nu pornesc alt lot nou (RF-03b, RF-06 etc.) până nu lămurim asta.**
+**Deschis, nerezolvat:** RF-UI-01 trece tehnic (584/584 teste și review funcțional ACCEPT), dar Lucian a respins direcția de produs. S-a început invers: mai multe proiecte și un HUD generic înaintea unui singur regat complet viu. Următoarea direcție este acum single-kingdom-first; integrarea Pi este prima dependență, nu o etapă ulterioară.
 
 ---
+
+### 16-09 — Direcția nouă aprobată; snapshot GitHub autorizat
+Lucian a aprobat pivotul single-kingdom-first și a cerut să salvăm pe GitHub tot ce este publicabil din starea actuală înainte să începem. Aceasta este autorizarea explicită pentru commitul și push-ul snapshot-ului curent; nu este aprobare permanentă pentru push-uri viitoare. Directiva supremă `instructiuni.md` a fost actualizată cu RF-K01, ordinea Pi → regat viu → mining/work proof → meniuri Tiny Swords → probă cap-coadă. Fișierele de guvernanță rămân locale conform politicii existente, dar direcția este duplicată în documentul versionabil `docs/PIVOT-SINGLE-KINGDOM-16-09-2026.md`. Nu publicăm `.env`, date, asset-uri Tiny Swords, imaginea de inspirație sau artefactele temporare de browser. Înainte de snapshot, `npm test` a trecut **584/584**, exit 0; remote-ul și localul aveau același HEAD `3c1c55b`.
+
+### 16-09 — Pivot: întâi un singur regat viu
+Lucian a corectat direcția: interfața nouă este doar puțin mai bună, dar produsul a fost construit în ordinea greșită. Trebuia întâi să vedem complet un singur proiect: planner și subagenți reali, ierarhie, lucru în timp real, muncitori care merg și minează, predări și dovezi. Abia după ce acel regat convinge, îl extindem la mai multe proiecte.
+
+Am verificat din nou Bot Crossing la commitul fixat `a4972429`. `docs/PARITY.md` este numai inventar: multe funcții de bază — contoare, navigare între agenți, listă de sesiuni, Viewed, next-needing-you, focus, feedback, comportamente vii și evitare de obstacole — sunt încă absente sau parțiale. Nu avem paritate de utilizare.
+
+Am evaluat și fork-ul direct. Nu îl recomand: originalul oferă o bază operațională matură, dar rendererul este Three.js 3D, iar trecerea la Tiny Swords 2D ar înlocui aproape toată lumea și agenții. În plus, originalul nu are profilurile persistente, SQLite, ierarhia Pi, taskurile și work proof-ul nostru. Păstrăm fundația actuală și transplantăm selectiv comportamentele utile, cu atribuirea MIT necesară.
+
+Pi poate fi integrat fără scraping de terminal: `pi-subagents@0.60.0` este instalat și scrie `status.json`, `events.jsonl`, loguri și artefacte machine-readable. Acestea pot alimenta starea după restart; un reporter opt-in poate furniza actualizările live. Aurul nu va fi un procent inventat: fiecare piesă trebuie să ducă la o dovadă reală — raport, artefact, test rulat, review sau gate verificat.
+
+Am verificat și pachetul Tiny Swords: există deja WoodTable, papers, banners, ribbons, buttons, bars, icons și sloturi. Nu le-am folosit în RF-UI-01 pentru că am ales greșit un HUD modern mat separat de lume, nu pentru că ar fi lipsit asset-urile. Noul regat le va folosi pentru meniuri, cu text și controale DOM accesibile. Planul complet este în `docs/PIVOT-SINGLE-KINGDOM-16-09-2026.md`. Nu am făcut commit sau push.
+
+### 16-09 — Primul slice este vizibil, dar review-ul l-a respins
+Noul ecran este deja vizibil pe serverul real, la `http://127.0.0.1:5311/`. Lucian a confirmat că arată mult mai bine. Am verificat eu în browser la 1440×1000 și 390×844: nu există overflow orizontal, iar consola nu are erori. Am rulat suita completă: **576/576 teste trec**, exit 0. Backend-ul și jocul legacy nu au diff, iar fișierele UI nu folosesc `innerHTML`.
+
+Totuși, reviewer-ul a dat corect `REJECT`: selectarea unei sesiuni poate lăsa vechiul personaj evidențiat, alternativa de tastatură a Canvas-ului devine focusabilă dar invizibilă, acțiunile nu au stare „în curs” și pot fi dublate, click-ul geometric pe pawn nu este testat, iar primul poll șterge punctul vizual al conexiunii. Deschid RF-UI-01b și repar toate cele cinci probleme înainte să declar interfața stabilă. Raport integral: `docs/handoff/RF-UI-01-reviewer-raport.md`.
+
+### 16-09 — Scop reconfirmat: să vedem munca efectivă, nu doar „running”
+Când primul slice a devenit vizibil, Lucian a spus explicit: „fix de asta facem acest tool, vreau să văd munca efectiv”. Are dreptate: coder-ul curent rulează ca subagent Pi, iar consola nu-l poate arăta deoarece adaptorul Pi încă lipsește. Am adăugat cerința în `PRODUCT.md` și am reprioritizat RF-03b imediat după RF-UI-01. Activitatea va fi afișată numai din date reale; până există integrarea, UI-ul nu va inventa pași sau progres.
+
+### 16-09 — Direcția noului ecran este stabilită
+Lucian mi-a dat `INspiratie/1.png`, imaginea modelului inițial. Am extras compoziția care contează: lumea ocupă aproape tot ecranul, proiectele sunt teritorii mari și colorate, agenții și clădirile sunt lizibile, iar în dreapta există un panou îngust care arată detaliile selecției. Nu copiem tema sci-fi, metricile sau butoanele care nu există în RPG Factory.
+
+Am scris `PRODUCT.md`, brief-ul `docs/handoff/RF-UI-01-surface.md` și gates pentru verificare. Direcția se numește „masă de comandă a breslei”: Tiny Swords rămâne lumea medievală, peste care construim un HUD operațional modern și compact. Desktop-ul este ținta principală; la 390×844 pagina trebuie totuși să fie complet utilizabilă, fără să iasă din ecran. Decizie de arhitectură: păstrăm Node + HTML/CSS/JavaScript + Canvas 2D și nu atingem backend-ul sau contractele API.
+
+### 16-09 — Refacerea interfeței a început
+Lucian mi-a cerut să mă ocup de interfață. Am deschis lotul `RF-UI-01`. Înainte de cod am fixat jobul primului ecran, relația hartă/HUD, ținta responsive, adevărul datelor și probele obligatorii. Urmează coder → tester → reviewer. Backend-ul și API-urile existente rămân neatinse în această etapă.
+
+### 16-09 — Audit complet înainte de refacerea vizuală
+Am verificat documentele în ordinea obligatorie, apoi codul local, GitHub, testele, serverul live și pagina în browser, pe desktop și mobil.
+
+**Ce e solid:** localul și GitHub sunt sincronizate la `3c1c55b`; toate cele **567 de teste trec**, atât local, cât și într-o clonă nouă de pe GitHub. Serverul rulează numai local, pe `127.0.0.1:5311`, și nu l-am oprit sau schimbat.
+
+**Ce nu e gata:** avem serverul, baza de date, citirea Claude Code, profilurile și o hartă de bază, dar nu avem încă Pi, ierarhia, taskurile, consumul, alertele și istoricul operațional complet. În datele live există o sesiune reală în lucru, dar nu este asociată unui profil; cei 4 specialiști de pe hartă sunt profiluri de test și niciun personaj nu apare ca lucrând.
+
+**Partea vizuală:** scorul auditului este **7/20**. Pe desktop, lumea este un cerc mic într-o suprafață neagră foarte mare; personajele au doar 11 pixeli și aproape nu se văd. Pe mobil, pagina este efectiv ruptă: panoul principal ajunge la aproximativ 50 de pixeli lățime, harta este tăiată, iar tabelele ies din ecran. Rândurile se pot selecta doar cu mouse-ul, nu cu tastatura.
+
+**GitHub:** codul se testează dintr-o clonă curată, dar `npm start` nu pornește fără un fișier `.env`, iar sprite-urile nu sunt pe GitHub. Repo-ul nu are `LICENSE`, release sau CI. README-ul este învechit și descrie greșit leveling-ul și licența artei.
+
+Raport complet: `docs/AUDIT-16-09-2026.md` (doar local, conform regulii proiectului). Următorul pas este brief-ul de redesign, nu cosmetizarea ecranului actual.
 
 ### 15-09 — Decizie: harta (RF-05) acum, Pi (RF-03b) mult mai jos pe listă
 **Lucian.** După ce am întrebat "RF-03b (Pi) sau RF-05 (harta)?", a răspuns clar: harta întâi, Pi se lasă mult mai jos pe listă.
