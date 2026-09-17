@@ -19,6 +19,11 @@ public/ui/
 /.playwright-cli/
 /.impeccable/
 
+# loguri brute de validare — pot conține căi absolute/output de mediu;
+# în Git intră numai sumarul Markdown sanitizat din docs/handoff/
+/docs/handoff/*-planner-validation.txt
+/docs/handoff/*-targeted-*.txt
+
 # documente de planificare/coordonare — rămân locale, nu intră în repo
 # (decizie Lucian, 14-09-2026; nu afectează HANDOFF.md/intent.md/docs/handoff/T-*,
 #  care erau deja urmărite înainte de această regulă)

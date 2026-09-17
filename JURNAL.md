@@ -20,15 +20,15 @@ Aplicația **se vede** — hartă cu hexagoane, personaje, iarbă și clădiri, 
 | RF-02b | profilurile agenților, salvate permanent, cu API | ✅ gata (370/370 teste), **urcat pe GitHub** |
 | RF-02c | sesiuni observate, asociere la profiluri | ✅ gata (442/442 teste), **urcat pe GitHub** |
 | RF-03a | citirea reală din Claude Code | ✅ gata (459/459 teste), **urcat pe GitHub** |
-| RF-03b / RF-K01b | citirea reală din Pi + recovery/deduplicare + reporter opțional | ⬜ **următoarea dependență** pentru regatul viu |
+| RF-03b / RF-K01b | citirea reală din Pi + recovery/deduplicare + reporter opțional | 🟨 b1 + b2 gata; **b3a SQLite atomic este în lucru** |
 | RF-04 | **primul ecran vizibil**: tabele, inspector | ✅ gata (497/497 teste), **urcat pe GitHub** |
 | RF-05 | harta: hexagoane, memorie, personaje, sprite-uri reale | ✅ **gata complet** (RF-05a/b/c/e — RF-05d respins, înlocuit), 567/567 teste, **urcat pe GitHub** |
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-K01a | contractul pur și sigur pentru statusurile Pi | ✅ gata (11/11 țintit, 595/595 complet, review ACCEPT), checkpoint publicat |
-| RF-K01 | un singur regat viu: Pi, ierarhie, mining/work proof, meniuri Tiny Swords | 🟨 în lucru; RF-K01b urmează |
+| RF-K01 | un singur regat viu: Pi, ierarhie, mining/work proof, meniuri Tiny Swords | 🟨 în lucru; status + events gata, persistarea b3a/b3b/b3c a început |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ numai după acceptarea regatului unic |
 
-**Pe GitHub:** checkpoint-ul anterior este `6914c5f` (`Checkpoint RF-UI-01 and adopt single-kingdom pivot`). La 16-09-2026, Lucian a autorizat separat publicarea checkpoint-ului RF-K01a după închiderea tuturor gate-urilor. Această autorizare nu acoperă push-uri viitoare.
+**Pe GitHub:** ultimul checkpoint este `2d8049c` (`Add safe Pi subagents status contract`, RF-K01a). La 16-09-2026, Lucian a autorizat separat numai această publicare. Autorizarea a fost consumată și nu acoperă RF-K01b sau alte push-uri.
 
 **Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. **Serverul tău de pe portul 5311 rulează** (l-am pornit eu, 15-09-2026, la cererea ta, ca să vezi harta — `node --env-file=.env server.js`, în fundal, PID poate diferi dacă a fost repornit între timp). Am creat manual 4 profiluri de test (`specialist-test-1..4`) direct în baza ta reală, doar ca să populeze harta pentru verificare — pot fi șterse oricând ceri.
 
@@ -37,6 +37,54 @@ Aplicația **se vede** — hartă cu hexagoane, personaje, iarbă și clădiri, 
 **Deschis, nerezolvat:** RF-UI-01 trece tehnic (584/584 teste și review funcțional ACCEPT), dar Lucian a respins direcția de produs. S-a început invers: mai multe proiecte și un HUD generic înaintea unui singur regat complet viu. Următoarea direcție este acum single-kingdom-first; integrarea Pi este prima dependență, nu o etapă ulterioară.
 
 ---
+
+### 17-09 — Predare pregătită pentru un agent/model nou; checkpoint local autorizat
+Lucian a decis să schimbe agentul și modelul după blocarea cotei Reviewer-ului. Am actualizat `HANDOFF.md` cu starea reală, ordinea obligatorie de citire și următoarea acțiune, iar `docs/handoff/NEXT-AGENT-17-09-2026.md` este pachetul scurt de pornire. `TASKS.md` și `GATES.md` consemnează că b3a are toate probele verzi, dar așteaptă verdict independent.
+
+Am verificat Git, nu am presupus: înaintea checkpoint-ului, local `master` și `origin/master` erau ambele la `2d8049c`, 0 ahead / 0 behind. Lucian a autorizat explicit commit-ul și apoi, separat, push-ul pentru b1–b3a, teste, handoff-uri și documentele publicabile actualizate. Checkpoint-ul `Checkpoint Pi lifecycle ingestion pipeline` a fost publicat pe `origin/master`. Logurile brute cu căi/output de mediu, documentele ignorate, datele și asset-urile restricționate au rămas locale.
+
+### 16-09 — RF-K01b3 a început, împărțit în trei loturi verificabile
+Am aplicat disciplina `ai-native-sdlc` și `unlazy` înainte de implementare și am inspectat fundația SQLite existentă plus schema reală de misiuni `pi-subagents@0.60.0`. Ca să nu amestecăm stocarea, citirea și datele private într-un singur pas mare, b3 este acum: **b3a** ledger SQLite atomic, **b3b** coordonator și recovery peste cititoarele acceptate, **b3c** misiuni allowlisted cu referințe de proof opace.
+
+B3a va scrie run-ul, snapshot-ul, evenimentele deduplicate și cursorul într-o singură tranzacție. Dacă orice pas eșuează, cursorul nu avansează. Snapshot-ul rămâne autoritatea stării; evenimentele identice după eliminarea datelor private sunt replay-uri, nu usage nou. Misiunile nu vor expune titlu, obiectiv, task, prompt, mesaje, output, URL-uri ori căi; proof-ul public va folosi identificatori opaci.
+
+Prima orchestrare s-a oprit după livrarea Coder-ului din cauza unei erori de configurare a Planner-ului: `runs.host` acceptă rolul `ci` sau `gate`, nu `planner`. Coder-ul și-a terminat corect etapa fără comenzi; Tester-ul și Reviewer-ul nu au fost porniți. Planner-ul a verificat sintaxa și diff-check (PASS), apoi a găsit înainte de teste trei defecte reale: cursorul b2b v1 era respins, regresia offset-ului era ignorată în loc de rollback, iar câmpuri obligatorii din events deveniseră opționale. Coder r2 le-a reparat.
+
+A doua orchestrare a avut alt defect în comanda Planner-ului: combinația `Tee-Object -LiteralPath -Append` a eșuat, dar PowerShell a continuat și a returnat exit 0, deci Reviewer-ul a primit un log incomplet. Reviewer-ul a respins corect lotul: lipsea warning-ul real `INVALID_STEP_NODE`, `workflowKey` accepta 256 în loc de 128, testele erau incomplete, iar probele nu fuseseră executate. Raportul a fost transcris integral. Planner-ul a rulat apoi țintit: **7 pass, 1 fail**; eșecul era într-un fixture Tester care construia `run_completed` păstrând cheia străină `mode`.
+
+Coder r3 a reparat cele două incompatibilități de cod. Tester r2 a reparat fixture-ul și a adăugat matricea celor 15 events. Probele reale au trecut: **10/10 țintit**, iar suita completă **657 pass, 0 fail, 2 skip din 659**; syntax și diff-check exit 0; server PID 40652 înainte/după. Re-review-ul r2 a respins totuși corect: Tester-ul rescrisese fișierul și pierduse aserții obligatorii pentru required fields, replay, limite și input ostil, deși raportul afirma acoperire completă.
+
+Tester r3 a făcut o greșeală mai gravă: în loc să adauge cele trei completări, a suprascris întregul fișier de teste cu numai acele trei blocuri, fără importuri sau helpers, în timp ce raportul afirma că testele vechi au rămas. Planner-ul a oprit fluxul la prima probă: `ReferenceError: test is not defined`, TARGET_EXIT=1.
+
+Tester r4 a restaurat corect fișierul autonom cu 13 teste. Probele Planner-ului sunt acum verzi: **13/13 țintit**, **660 pass, 0 fail, 2 skip din 662 complet**, syntax și diff-check exit 0, server PID 40652 înainte/după. Reviewer-ul final nu a putut porni din cauza limitei de utilizare Codex (`The usage limit has been reached`), nu din cauza codului sau testelor. RF-K01b3a rămâne formal deschis numai până la review-ul independent obligatoriu; nu retrimitem imediat aceeași cerere cât timp limita este activă. Nu s-a citit Pi real, nu s-a migrat baza reală și nu s-a făcut commit/push/deploy.
+
+### 16-09 — RF-K01b2b închis: fluxul incremental este sigur și acceptat
+Reader-ul `events.jsonl` este gata. Citește incremental, reia din cursor fără replay, așteaptă liniile incomplete, abandonează bounded liniile uriașe, recunoaște rotația/truncarea și proiectează numai evenimentele acceptate de b2a. Nu expune căi sau payload-uri private și nu citește încă Pi real.
+
+Prima formă a trecut testele, dar Reviewer-ul a găsit o pierdere reală la frontiera CRLF: un payload exact la limită putea fi abandonat dacă fereastra se termina între CR și LF. R4/r5 au reparat frontiera și varianta DoS cu o linie uriașă terminată în CR. Testele de link au fost separate, astfel încât skip-ul Windows pentru file-symlink nu mai ascunde probele root/run. Rezultatul final: 20 pass și un skip explicit țintit; 647 pass, zero fail și două skip-uri totale din 649; server PID 40652 neatins; re-review **ACCEPT / Merge OK**. Urmează RF-K01b3: persistență SQLite, recovery, deduplicare și misiuni allowlisted. Nu s-a făcut commit, push, deploy sau activare Pi reală/globală.
+
+### 16-09 — Istoric RF-K01b2b: citirea live a fluxului de evenimente
+Am fixat contractul înainte de cod. Prima livrare a Coder-ului a trecut verificarea de sintaxă, dar Planner-ul a oprit-o înainte de Tester: o linie uriașă fără newline la final putea rămâne blocată ca „incompletă”, iar o eroare de read putea muta cursorul sigur înapoi la zero și repeta evenimente. Corecția r2 a reparat aceste două cazuri și clasificarea portabilă a unui `events.jsonl` care nu este fișier. La recitire, Planner-ul a mai prins un calcul dublu al offset-ului după abandonarea unei linii uriașe, care putea sări peste evenimentul valid următor. R3 folosește acum o bază nemutabilă și cursor relativ; sintaxa și diff-check trec. Testele au ajuns la 15 pass/1 skip țintit și 642 pass/2 skip complet, dar Reviewer-ul a respins corect lotul: un payload CRLF exact la limită putea fi abandonat dacă fereastra se termina între CR și LF. R4 repară frontiera și cere o fereastră de minimum payload + doi bytes de delimitator. Reviewer-ul a cerut și separarea testelor de link, ca skip-ul Windows al file-symlink-ului să nu ascundă probele root/run.
+
+Reader-ul va primi numai root/run explicit și va citi incremental `events.jsonl` printr-un descriptor stabil, fără scanare în home/temp și fără date Pi reale în teste. Cursorul nu va conține căi sau bucăți private de linie. Liniile incomplete așteaptă următoarea citire; cele uriașe sunt abandonate incremental; rotația și truncarea resetează controlat sursa. Limitele sunt 256 KiB per citire, 64 KiB per eveniment și 200 linii implicit, cu plafoane hard. Acest lot nu atinge încă UI-ul sau SQLite: produce fluxul sigur care va conduce mișcarea, mining-ul și semnalele live după persistența b3.
+
+### 16-09 — RF-K01b2a închis: contractul evenimentelor Pi este acceptat
+Contractul pur pentru evenimente Pi este gata. Acceptă numai cele 15 tipuri aprobate, le leagă de run-ul așteptat și elimină taskuri, prompturi, mesaje, output, erori, căi, payload-uri de tool, usage/cost și câmpurile necunoscute. Nu citește încă niciun fișier real și nu schimbă snapshot-ul autoritar.
+
+Prima rundă de teste a trecut, dar Reviewer-ul a respins corect matricea deoarece lipseau trei limite precise: versiunea pe `run.completed`, mismatch direct pentru un run și limitele `childRunId`. Tester-ul a adăugat strict aceste cazuri. Planner-ul a rerulat 14/14 teste țintite și suita completă: 627 pass, zero fail și un skip de platformă din 628. Serverul a rămas PID 40652. Re-review-ul final a dat **ACCEPT / Merge OK**. Următorul lot este RF-K01b2b: citirea incrementală `events.jsonl`, cursor, linii incomplete, truncare și rotație. Nu s-a făcut commit, push, deploy sau activare Pi reală/globală.
+
+### 16-09 — RF-K01b pornit: citim Pi real înainte să desenăm munca
+Lucian a cerut continuarea spre regatul vizual. Am început dependența care îl face adevărat: citirea read-only a artefactelor Pi. Am aplicat `ai-native-sdlc` și `unlazy`, am recitit regulile și sursele `pi-subagents@0.60.0` și am împărțit lotul în patru părți verificabile: b1 citește sigur `status.json`, b2 adaugă evenimente incrementale, b3 persistă/reia din SQLite și citește misiuni, iar b4 livrează reporterul opt-in fără să-l instaleze global.
+
+RF-K01b1 este acum pornit. Reader-ul va primi numai rădăcini absolute furnizate explicit, nu va scana singur home/temp/discul, nu va urma link-uri în afara rădăcinii și nu va expune căi ori erori brute. Limitele sunt stabilite înainte de cod: maximum 8 roots, 200 candidați și 1 MiB per status implicit, cu plafoane hard. Coder-ul primește numai modulul read-only și raportul; events, DB, server, UI și reporterul sunt interzise în acest sub-lot.
+
+Prima implementare a trecut 607/608 teste, cu un singur skip de platformă, dar Reviewer-ul a respins-o corect. Verificarea `status.json` și citirea lui erau două operații separate pe aceeași cale: un atacator putea schimba fișierul între ele, iar un fișier care creștea putea fi citit integral înainte să fie respins. Reluăm ciclul de la Coder. Corecția folosește un singur descriptor stabil, `NOFOLLOW` unde există, identitate `lstat`/`fstat` și un buffer limitat la plafon + 1 byte. Tester-ul a adăugat regresii pentru cursă și pentru un link candidat care consumă buget; acestea au trecut în suita completă 610/611, cu un skip de platformă.
+
+Al doilea review a găsit aceeași clasă de problemă cu un nivel mai sus: root-ul putea fi schimbat într-un junction exact între primul `lstat` și `realpath`, astfel încât exteriorul devenea greșit chiar ancora de încredere. R3 păstrează identitatea inițială și o compară după canonicalizare atât cu root-ul curent, cât și cu path-ul canonical memorat. Astfel este prins inclusiv swap-ul restaurat rapid după `realpath`. Tot în r3, un mismatch de identitate al statusului are prioritate față de clasificarea tipului.
+
+RF-K01b1 s-a închis după al treilea review: ACCEPT, Merge OK. Suita țintită are 18 pass și un skip explicit de platformă; suita completă are 613 pass, zero fail și același skip din 614. Serverul de pe 5311 a rămas PID 40652. Cele două respingeri au fost utile: reader-ul final are root anchor verificat, FD stabil, `NOFOLLOW` când există, identitate înainte de tip, citire limitată și cleanup garantat. Nu s-a citit Pi real, nu s-a scris DB și nu s-a activat nimic global.
+
+Am pornit RF-K01b2 și l-am împărțit în b2a+b2b, ca payload-urile private din `events.jsonl` să nu ajungă accidental în reader. B2a este contract pur, fără filesystem: acceptă numai evenimente lifecycle cunoscute, le leagă de un `expectedRunId` și elimină message/task/prompt/output/error/path/tool payload/cost/usage și orice câmp necunoscut. B2b va adăuga abia apoi cursorul, liniile parțiale și rotația. Status snapshot rămâne adevărul curent; evenimentele sunt numai istoric și hints.
 
 ### 16-09 — Snapshot salvat pe GitHub; RF-K01a pornit
 Snapshot-ul autorizat a fost urcat pe `origin/master`: commit `6914c5f` (`Checkpoint RF-UI-01 and adopt single-kingdom pivot`). Remote-ul a fost reverificat și indică exact același hash. Au intrat UI-ul actual, cele 584 de teste, rapoartele RF-UI-01, documentele publicabile ale pivotului și fontul Grenze cu licența OFL. Nu au intrat `.env`, date, Tiny Swords, imaginea de inspirație, capturile/tool-state temporare sau guvernanța locală.

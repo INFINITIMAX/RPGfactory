@@ -3,29 +3,46 @@
 > **Precedență:** `instructiuni.md` are prioritate peste tot ce s-a muncit până acum în proiect. Dacă acest fișier îl contrazice, `instructiuni.md` câștigă. Vezi `AGENTS.md` § „Precedența documentelor”.
 
 
-Actualizat: **14-09-2026**.
+Actualizat: **17-09-2026**.
 
 ## 1. Stare curentă și următoarea acțiune
 
-**Interviul de produs este încheiat. Estetica fină este amânată.** Lucian a cerut să trecem la construire, nu să continuăm alegerea clădirilor.
+Direcția activă este **single-kingdom-first**: un singur regat funcțional, alimentat cu agenți Pi reali și dovezi reale, înainte de multi-regat sau polish extins. RF-UI-01 a fost acceptat tehnic, dar respins ca direcție finală de produs.
 
-> **NOTĂ DE PRECEDENȚĂ (14-09-2026).** Punctul de aprobare de mai jos a fost **înlocuit** de `instructiuni.md` §1/§13 și de reparația cerută de review-ul RF-00-R (constatarea C1). Textul original al pasului 2 cerea o singură aprobare pentru două lucruri diferite — arhitectura SQLite *și* pornirea RF-01 — ceea ce bloca RF-01 de o decizie de care nu depinde tehnic. Citește `instructiuni.md` **înaintea** acestui fișier. Restul documentului rămâne valabil.
+### Citire obligatorie pentru un agent nou, în ordine
 
-Deciziile confirmate sunt în `docs/DECISIONS.md` (I01–I43), rezumate în `intent.md`. Specificația tehnică e în `spec.md`; planul de producție e în `instructiuni.md` §10 (`plan.md` a fost înlocuit). **Nu există cod nou de produs în această etapă.**
+1. `instructiuni.md` — autoritatea supremă locală.
+2. `HANDOFF.md` — acest rezumat de continuitate.
+3. `intent.md` și `docs/DECISIONS.md`.
+4. `spec.md`.
+5. `TASKS.md`, apoi secțiunea relevantă din `GATES.md` și brief-ul curent din `docs/handoff/`.
+6. `docs/PARITY.md` — inventar/oracol, nu dovadă că paritatea este implementată.
+7. Pentru starea narativă și greșelile recente: ultimele intrări din `JURNAL.md`.
 
-Următorii pași:
-1. ~~Închide review-ul documentar RF-00-R~~ — **făcut** 14-09-2026: verdict RESPINS, transcris integral în `docs/handoff/RF-00-reviewer-raport.md`, constatări acceptate și reparate. Re-review (RF-00-R2) urmează.
-2. **RF-01 este autorizat să înceapă** (gate G4a) — nu mai cere aprobare generală pentru el; păstrează stocarea JSON. **Arhitectura SQLite rămâne neaprobată** (gate G4b) și se confirmă separat, înainte de RF-02.
-3. Brief coder pe disc → coder → brief tester → tester → teste rulate de planner → reviewer read-only → raport integral/decizie.
-4. Nu instala reportere/global hooks, nu migra date reale, nu opri serverul activ și nu face push/deploy fără gate separat.
+`AGENTS.md` conține regulile persistente de proiect și trebuie respectat înainte de orice editare. Nu deduce statusul din timestamp-uri; `TASKS.md` este indexul, iar rapoartele din `docs/handoff/` sunt dovada.
 
-**Indexul de lucru este `TASKS.md`; nu deduce statusul din timestamps.**
+### Starea exactă
+
+- RF-K01a este acceptat, comis și publicat la `2d8049c`.
+- RF-K01b1, RF-K01b2a și RF-K01b2b sunt acceptate de Reviewer, dar sunt încă locale, necomise și nepublicate.
+- RF-K01b3a (ledger SQLite atomic) are implementarea și testele verzi: **13/13 țintit; 660 pass, 0 fail, 2 skip din 662 complet; syntax/diff-check PASS; server PID 40652 înainte/după**.
+- RF-K01b3a este formal deschis numai fiindcă Reviewer-ul final nu a pornit: `gpt-5.6-sol` a întors `The usage limit has been reached`. Lucian a spus că va schimba agentul/modelul pentru continuare.
+- Raportul/brief-ul de reluare este `docs/handoff/RF-K01b3a-r3-reviewer.md`; dovada publicabilă sanitizată este `docs/handoff/RF-K01b3a-validation-summary.md` (logul brut rămâne local); blocajul este consemnat în `docs/handoff/RF-K01b3a-r3-reviewer-attempt.md`.
+
+### Următoarea acțiune
+
+1. Rulează un **review read-only independent** pentru RF-K01b3a asupra stării curente; nu mai rescrie implementarea/testele dacă nu există finding concret.
+2. Transcrie verdictul integral în `docs/handoff/RF-K01b3a-r3-reviewer-raport.md` și actualizează `GATES.md`, `TASKS.md`, `JURNAL.md`.
+3. Dacă verdictul este ACCEPT, implementează **RF-K01b3b minimal**: coordonator explicit b1+b2b+ledger/recovery, fără polling global.
+4. După b3b, prioritatea devine imediat vizuală: leagă ierarhia/stările Pi reale la kingdom. Nu lăsa b3c/b4 să blocheze primul kingdom funcțional; proof-ul complet și reporter-ul opt-in pot urma după vertical slice-ul vizibil.
+
+Nu instala/activa reportere globale, nu citi artefacte Pi reale fără configurație/aprobare explicită, nu migra baza reală, nu opri serverul și nu face commit/push/deploy fără gate separat.
 
 ## 2. Ce construim acum
 
-Consolă locală de observabilitate pentru **Pi + Claude Code**, cu profiluri permanente și istoric. Bot Crossing este referința funcțională principală; codul/controalele pot fi reutilizate cu MIT și păstrate temporar cu aspectul lor original dacă reskin-ul nu este gata.
+Un **singur kingdom 2D funcțional** pentru un proiect viu: planner și subagenți Pi reali, ierarhie inspectabilă, stări adevărate, mișcare/mining numai pe activitate confirmată, aur ca proof discret și meniuri Tiny Swords accesibile. Bot Crossing rămâne oracol comportamental MIT, nu renderer de copiat integral.
 
-- Hartă 2D medievală dominantă, panou operațional în dreapta.
+- Hartă 2D medievală dominantă, cu informație critică și comenzi disponibile și în DOM accesibil.
 - Repo = regat, extensibil prin celule hexagonale vecine; posturi persistente.
 - Zoom progresiv și focalizare locală fără pierderea totalurilor globale.
 - Tabele nivel ierarhic × stare, global și pe regat; arbore și legături la selecție.
@@ -44,17 +61,19 @@ Consolă locală de observabilitate pentru **Pi + Claude Code**, cu profiluri pe
 
 ## 3. Ce există efectiv în cod
 
-Bază Git: `6fecdadb773bb8ec0015bfcccedaaaf697ff7b77`, repo `https://github.com/INFINITIMAX/RPGfactory`. La auditul din 13-09-2026, HEAD local și remote erau identice. Orice confirmare ulterioară cere `git ls-remote`, nu deducție din `git log`.
+Repo: `https://github.com/INFINITIMAX/RPGfactory`, branch `master`. Pe 17-09-2026 Lucian a autorizat explicit commit-ul și push-ul checkpoint-ului `Checkpoint Pi lifecycle ingestion pipeline`, care include munca publicabilă b1–b3a. Documentele ignorate, logurile brute, datele și asset-urile restricționate nu fac parte din publicare. Verifică `git log -1` pentru hash-ul exact.
 
-Implementare existentă: Node HTTP fără framework, CommonJS, Canvas 2D într-un `public/app.js` mare, citire numai a registrului Claude CLI și a cozilor transcripturilor, `rank.js`, `status.js`, `state.js`, `zones.js`, `merge-state.js`. Date în `data/state.json`, artă locală ignorată de Git.
+Există efectiv:
 
-**Nu există încă:** adaptor Pi, profiluri permanente/SQLite, HUD de paritate, dosare/telemetrie completă sau leveling verificat.
+- server HTTP securizat/testabil, SQLite versionat, profiluri, configurații, runs și asocieri;
+- integrare Claude Code existentă;
+- hartă Canvas 2D și prototip HUD;
+- RF-K01a: contract status Pi pur și acceptat;
+- local, nepublicat: b1 discovery/status reader, b2a event contract, b2b JSONL reader, b3a migrarea `005`, `pi-ingestion.js` și testele aferente.
 
-Auditul complet este `docs/AUDIT-13-09-2026.md`. Probleme-cheie: animații contrare activității, selecție ambiguă, XSS, stale invizibil, bind pe toate interfețele, containment static incomplet, validare/CAS insuficiente și plecare invizibilă înainte de turn.
+Dovada curentă a suitei complete este **660 pass, 0 fail, 2 skip din 662** pe 17-09-2026. Testele RF-K01b folosesc numai date sintetice/DB temporare; serverul de pe portul 5311 a rămas PID 40652.
 
-Dovadă istorică: **205 teste, 0 fail**, rulate pe 13-09-2026 într-o copie izolată, cu `child_process.spawn` substituit pentru a nu deschide harness-uri. Nu pretinde că această dovadă validează noua arhitectură.
-
-**ATENȚIE:** testele actuale de state modifică temporar fișierul real `data/state.json`, iar testele API pot lansa opener-ul Windows. Până la RF-01, nu rula suita direct peste checkout-ul activ. Folosește copie temporară și opener substituit, conform auditului. RF-01 trebuie să elimine această nevoie prin dependency injection.
+Nu există încă: coordonatorul b3b activ, citire Pi reală activată, binding-ul kingdom la Pi, mining/proof vizual complet sau reporter global.
 
 ## 4. Descoperiri tehnice și propuneri
 
