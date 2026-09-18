@@ -22,6 +22,9 @@ const { allocateCells } = require('./hex-layout');
 const { readJsonBody } = require('./body');
 const { buildAllowedOrigins, checkOrigin, resolveStaticPath } = require('./server/http-guards');
 const { pollClaudeCodeSessions } = require('./adapters/claude-code');
+const { createPiIngestionStore } = require('./pi-ingestion');
+const { projectPiKingdom } = require('./pi-kingdom');
+const { scanPiSubagentsStatuses } = require('./adapters/pi-subagents-files');
 
 const CONTENT_TYPES = {
   '.html': 'text/html',
@@ -173,6 +176,11 @@ function createServer(options = {}) {
   // restul opțiunilor (D1/D12) — 5 secunde implicit, suficient de des ca să
   // prindă tranziții de lifecycle fără să bată disc-ul degeaba.
   const pollIntervalMs = options.pollIntervalMs || 5000;
+  // Root-urile Pi sunt opt-in și trebuie furnizate explicit de apelant.
+  // Nu deducem home/temp, iar valori invalide dezactivează citirea live.
+  const piRoots = Array.isArray(options.piRoots) && options.piRoots.every((root) =>
+    typeof root === 'string' && root.trim() && path.isAbsolute(root)
+  ) ? options.piRoots : [];
 
   const stateStore = createStateStore({ dataDir, now });
   // Ca la stateStore: construcția store-ului nu deschide baza (RF-02b,
@@ -191,6 +199,9 @@ function createServer(options = {}) {
   // deschis lazy la fel (vezi slot-store.js), fără să partajeze ownership-ul
   // de închidere. Refolosește `options.dbPath`/`options.migrationsDir`.
   const slotStore = createSlotStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
+  // Ledger-ul rămâne fallback-ul opt-in atunci când nu sunt configurate
+  // root-uri live Pi.
+  const piIngestionStore = createPiIngestionStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
 
   // Setul de origini permise nu se cunoaște până nu ascultă efectiv
   // serverul (portul efemer 0 devine un port real abia atunci). Se
@@ -559,6 +570,50 @@ function createServer(options = {}) {
       return;
     }
 
+    if (pathname === '/api/pi/kingdom') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { Allow: 'GET, HEAD' });
+        res.end();
+        return;
+      }
+      try {
+        let observations;
+        if (piRoots.length > 0) {
+          const scan = scanPiSubagentsStatuses({
+            roots: piRoots,
+            maxRoots: 8,
+            maxRuns: 1000,
+            maxStatusBytes: 1024 * 1024,
+          });
+          if (!scan || scan.ok !== true || !scan.value || !Array.isArray(scan.value.runs)) {
+            observations = null;
+          } else {
+            observations = scan.value.runs.map((snapshot) => {
+              const timestamps = [snapshot.root, ...(Array.isArray(snapshot.children) ? snapshot.children : [])]
+                .flatMap((node) => [node && node.startedAt, node && node.lastActivityAt])
+                .filter((timestamp) => typeof timestamp === 'number' && Number.isFinite(timestamp));
+              return { snapshot, storedAt: timestamps.length ? Math.max(...timestamps) : null };
+            });
+          }
+        } else {
+          observations = runsStore
+            .listRuns()
+            .filter((run) => run.source_harness === 'pi-subagents')
+            .map((run) => ({ snapshot: piIngestionStore.getSnapshot(run.native_id), storedAt: run.updated_at }));
+        }
+        const body = JSON.stringify(projectPiKingdom(observations, { now: now() }));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(req.method === 'HEAD' ? undefined : body);
+      } catch (_) {
+        // O citire live eșuată nu reintroduce date din ledger și nu expune
+        // detalii despre root-uri, fișiere sau payload-uri Pi.
+        const body = JSON.stringify(projectPiKingdom(null, { now: now() }));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(req.method === 'HEAD' ? undefined : body);
+      }
+      return;
+    }
+
     // RF-05b: /api/world — zonele hărții, recalculate de fiecare dată (nu se
     // face cache separat, nu invalidare manuală). Doar GET — nicio mutație
     // expusă pentru layout (vezi layout.js, de ce nu are CAS).
@@ -694,6 +749,7 @@ function createServer(options = {}) {
   // RF-05c: la fel, pentru `slotStore` — handle SQLite separat, ownership
   // separat la închidere.
   server.closeSlotStore = slotStore.close;
+  server.closePiIngestionStore = piIngestionStore.close;
 
   // RF-03a: sondarea periodică a sesiunilor Claude Code. `createServer` NU
   // pornește timer-ul la construcție (D1) — un `setInterval` pornit aici ar
@@ -747,6 +803,7 @@ function createServer(options = {}) {
     layoutStore.close();
     // RF-05c: la fel, pentru `slotStore`.
     slotStore.close();
+    piIngestionStore.close();
     if (callback) callback(err);
   });
 
@@ -790,7 +847,10 @@ function startServer(options = {}) {
 }
 
 if (require.main === module) {
-  startServer().catch((e) => {
+  const piRoots = (process.env.PI_SUBAGENTS_ROOTS || '')
+    .split(path.delimiter)
+    .filter((root) => root.trim() && path.isAbsolute(root));
+  startServer({ piRoots }).catch((e) => {
     console.error(e);
     process.exit(1);
   });

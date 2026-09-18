@@ -24,7 +24,7 @@
   <main id="main">
     <section id="world-section" aria-labelledby="world-heading">
       <div class="world-heading">
-        <h1 id="world-heading">Harta regatelor</h1>
+        <h1 id="world-heading">Regatul Pi</h1>
         <div class="map-controls" aria-label="Controale hartă">
           <button id="map-zoom-out" type="button" aria-label="Micșorează harta">-</button>
           <output id="map-zoom-value" aria-live="polite">100%</output>
@@ -34,9 +34,9 @@
       </div>
       <div id="world-canvas-wrap">
         <canvas id="world-canvas" width="960" height="720" tabindex="0" role="img"
-          aria-label="Hartă interactivă a proiectelor și specialiștilor"
+          aria-label="Hartă interactivă a ierarhiei Pi"
           aria-describedby="world-description world-status"></canvas>
-        <p id="world-description" class="sr-only">Folosește controalele pentru zoom. Trage harta cu pointerul. Lista accesibilă de sub hartă conține aceiași specialiști.</p>
+        <p id="world-description" class="sr-only">Folosește controalele pentru zoom. Trage harta cu pointerul. Lista accesibilă de sub hartă conține aceleași noduri Pi.</p>
         <div class="map-compass" aria-hidden="true"><span>N</span><i></i></div>
         <div id="world-status" class="world-status" role="status" aria-live="polite">Se încarcă harta…</div>
       </div>
@@ -44,6 +44,22 @@
     </section>
 
     <aside id="operations-rail" aria-label="Registrul operațional">
+      <div id="pi-kingdom-panel" class="kingdom-panel">
+        <section class="rail-section kingdom-source" aria-labelledby="pi-source-title">
+          <div class="section-heading"><h2 id="pi-source-title">Sursa Pi</h2><span id="pi-source-status" class="count-badge" role="status" aria-live="polite">loading</span></div>
+          <p id="pi-source-detail" class="kingdom-detail">Se așteaptă observația Pi.</p>
+        </section>
+        <section class="rail-section" aria-labelledby="pi-matrix-title">
+          <h2 id="pi-matrix-title">Ierarhie și stare</h2>
+          <div class="table-scroll"><table id="pi-matrix"><thead><tr><th>Nivel</th><th>Total</th><th>Rulează</th><th>Așteaptă</th><th>Pauză</th><th>Atenție</th><th>Necunoscut</th></tr></thead><tbody id="pi-matrix-body"></tbody></table></div>
+        </section>
+        <section class="rail-section" aria-labelledby="pi-tree-title">
+          <div class="section-heading"><h2 id="pi-tree-title">Arbore Pi</h2><span id="pi-tree-count" class="count-badge">0</span></div>
+          <div id="pi-tree" class="pi-tree" aria-label="Arborele execuțiilor Pi"></div>
+        </section>
+        <section id="pi-inspector" class="rail-section pi-inspector" aria-live="polite"><p>Selectează un Pawn pentru inspector.</p></section>
+      </div>
+      <details id="legacy-registry" class="legacy-registry"><summary>Registru profiluri și sesiuni</summary>
       <div id="rail-overview">
         <section class="rail-section summary-section" aria-labelledby="summary-title">
           <div class="section-heading">
@@ -89,8 +105,8 @@
           </div>
         </section>
       </div>
-
       <section id="inspector" class="rail-inspector hidden" aria-label="Inspector selecție" aria-live="polite"></section>
+      </details>
     </aside>
   </main>
 

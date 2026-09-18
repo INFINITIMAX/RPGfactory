@@ -201,8 +201,9 @@ function createPiIngestionStore(options = {}) {
     }
   }
 
-  function commitObservation({ snapshot, events, cursor } = {}) {
-    if (!validateSnapshot(snapshot) || !Array.isArray(events) || events.length > 1000 || !validateCursor(cursor)) throw fail('VALIDATION');
+  function commitObservation({ snapshot, events, cursor, cursorReset } = {}) {
+    if (!validateSnapshot(snapshot) || !Array.isArray(events) || events.length > 1000 || !validateCursor(cursor) ||
+        (cursorReset !== undefined && cursorReset !== 'truncated')) throw fail('VALIDATION');
     const nativeRunId = snapshot.root.nativeId;
     if (events.some((event) => !validateEvent(event, nativeRunId))) throw fail('VALIDATION');
     const snapshotJson = canonicalJson(snapshot);
@@ -221,7 +222,9 @@ function createPiIngestionStore(options = {}) {
       const ts = timestamp();
       db.exec('BEGIN');
       const previousCursor = db.prepare('SELECT file_key, offset FROM pi_run_cursors WHERE run_id = ?').get(runId);
-      if (previousCursor && previousCursor.file_key === cursor.fileKey && cursor.offset < previousCursor.offset) {
+      const cursorRegressed = previousCursor && previousCursor.file_key === cursor.fileKey && cursor.offset < previousCursor.offset;
+      const validTruncationReset = cursorReset === 'truncated' && cursorRegressed;
+      if ((cursorReset !== undefined && !validTruncationReset) || (cursorRegressed && !validTruncationReset)) {
         throw fail('VALIDATION');
       }
       const existing = db.prepare('SELECT revision FROM runs WHERE id = ?').get(runId);
