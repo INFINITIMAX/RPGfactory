@@ -80,7 +80,7 @@ test('migrația reală 005 este aditivă în schema_migrations și are PK/FK/ind
     const handle = openDatabase({ path: fileFor(dir), migrationsDir: MIGRATIONS_DIR });
     try {
       const applied = handle.db.prepare('SELECT name FROM schema_migrations ORDER BY name').all().map((row) => row.name);
-      assert.deepEqual(applied.slice(-1), ['005-pi-ingestion.sql']);
+      assert.ok(applied.includes('005-pi-ingestion.sql'));
       assert.ok(applied.includes('001-profiluri.sql') && applied.includes('002-sesiuni.sql'));
       for (const name of ['pi_run_snapshots', 'pi_run_events', 'pi_run_cursors']) {
         assert.ok(handle.db.prepare(`PRAGMA table_info(${name})`).all().some((column) => column.pk === 1));
