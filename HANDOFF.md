@@ -33,16 +33,17 @@ Direcția activă este **single-kingdom-first**: un singur regat funcțional, al
 - În timpul primei probe Playwright RF-K01d, vechiul listener 5311/PID 9908 s-a oprit dintr-o cauză nedemonstrată. Lucian a autorizat separat restartul: aplicația rulează persistent acum pe PID 48192, pagina HTTP 200, kingdom `ready/fresh`, 2 noduri. Configurația `.env` rămâne locală și exclusă din Git.
 - Commit publicabil creat și publicat: `48c3b6f` (`Add Pi ingestion coordinator and live kingdom`), exact 15 fișiere de cod/config exemplu/teste; `origin/master` coincide cu HEAD. Documentele locale și artefactele private au fost excluse.
 - RF-K01b3c este **PUBLICAT** 18-09-2026: reader + persistență pentru misiuni allowlisted și proof opac, migrarea `006`; **24 pass, 0 fail, 1 skip țintit; 695 pass, 0 fail, 3 skip din 698 complet; review final ACCEPT / Merge OK**. Commit `05801ec` pe `origin/master`; HEAD și remote coincid, ahead/behind 0/0. Raport: `docs/handoff/RF-K01b3c-r2-reviewer-raport.md`.
-- RF-K01d este **ACCEPTAT / Merge OK / LOCAL NECOMIS** 18-09-2026: mission board, 3 tipuri de legături dovedite în fixture, exact un gold per proof, selecție sincronizată și UI desktop finisat; **33/33 țintit; 717 pass, 0 fail, 3 skip din 720 complet**. Captură: `docs/handoff/RF-K01d-desktop-final.png`; review: `docs/handoff/RF-K01d-reviewer-raport.md`. Root-ul mission absolut nu este configurat.
-- RF-K02 este **ÎNCHIS TEHNIC / ACCEPT / Merge OK / LOCAL NECOMIS** 19-09-2026: oraș medieval strict 2D top-down, hartă edge-to-edge și registru modal contextual. Cele trei P1 inițiale (cadre/proporții sprite, overflow Pawn și izolare focus) plus deplasarea `main.scrollLeft` sunt închise. **71/71 țintit; 721 pass, 0 fail, 3 skip din 724 complet**; browser desktop și mobil fără overflow, erori sau warnings. Capturi: `RF-K02-desktop-final.png`, `RF-K02-mobile-final.png`; review: `RF-K02-final-reviewer-raport.md`.
-- RF-L10N-01 este **ÎNCHIS TEHNIC / ACCEPT / Merge OK** 20-09-2026: UI curent și legacy, runtime/API, codul activ și documentația publică sunt English-only. **73/73 țintit; 723 pass, 0 fail, 3 skip din 726 complet**; ambele suprafețe browser au consolă 0/0. Review final fără findings.
-- Serverul real rulează pe 5311, PID 49348, HTTP 200, după restartul autorizat pentru încărcarea backend-ului tradus. Configurarea Pi live rămâne pusă pe pauză până după publicare.
+- RF-K01d, RF-K02 și RF-L10N-01 sunt **PUBLICATE / ACCEPT / Merge OK** în checkpoint-ul `861fe57` din 20-09-2026.
+- RF-K01d livrează mission board, gold/proof exact și handoff-uri confirmate; root-ul mission absolut real nu este încă configurat.
+- RF-K02 livrează orașul medieval strict 2D top-down, hartă edge-to-edge și registru modal contextual; toate P1 și defectul `main.scrollLeft` sunt închise.
+- RF-L10N-01 livrează UI curent + legacy, runtime/API, cod activ și documentație publică English-only; **73/73 țintit; 723 pass, 0 fail, 3 skip din 726 complet**; browser console 0/0; review final fără findings.
+- Serverul real rulează pe 5311 și răspunde HTTP 200 după restartul autorizat pentru încărcarea backend-ului tradus. Configurarea Pi live rămâne pusă pe pauză.
 
 ### Următoarea acțiune
 
-**Acțiunea curentă autorizată:** publică pe GitHub toate fișierele sigure și publicabile pentru RF-K01d + RF-K02 + RF-L10N-01, prin manifest explicit. Exclude `.env`, date/sesiuni reale, loguri, inspirația privată, paths/ID-uri private și asset-urile Tiny Swords restricționate.
+**STOP.** Publicarea sigură este completă la `861fe57`; `origin/master` coincide cu HEAD, ahead/behind 0/0.
 
-După publicare, oprește-te. Configurarea live Pi/root mission rămâne separată și nu se reia automat. Nu instala/activa reportere globale și nu migra baza reală.
+Configurarea live Pi/root mission rămâne separată și nu se reia automat. Nu instala/activa reportere globale și nu migra baza reală.
 
 ## 2. Ce construim acum
 

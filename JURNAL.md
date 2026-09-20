@@ -12,7 +12,9 @@ Lucian a clarificat că RPG Factory nu are public din România: tot produsul și
 
 Lotul s-a închis tehnic pe 20-09-2026. Producția are zero linii cu diacritice românești în scope, UI-ul curent și legacy declară `lang=en`, nu au overflow și au console curate. Testele țintite au trecut 73/73 după ultimele corecții, iar suita completă are **723 pass, 0 fail și 3 skip din 726**. Primul review a blocat corect un comentariu de producție și trei diagnostice de test rămase în română; toate patru au fost traduse, reverificate, iar re-review-ul a dat **ACCEPT / Merge OK**. Titlurile/comentariile din testele istorice neafectate rămân evidență internă, nu produs livrat.
 
-Tot Lucian a decis că munca publicabilă care există numai local trebuie să ajungă pe GitHub. Publicarea vine după manifestul sigur. Sunt excluse obligatoriu `.env`, bazele și sesiunile reale, logurile, inspirația privată și asset-urile Tiny Swords care nu pot fi redistribuite brut. Configurarea Pi live cerută anterior a fost pusă pe pauză înainte să fie schimbat `.env`; traducerea și publicarea au prioritate.
+Tot Lucian a decis că munca publicabilă care există numai local trebuie să ajungă pe GitHub. Manifestul final a avut exact 45 de fișiere și a trecut scanarea: zero paths interzise și zero markeri privați după generalizarea unui exemplu local. Au fost excluse `.env`, bazele și sesiunile reale, logurile, inspirația privată, capturile/artefactele temporare și asset-urile Tiny Swords care nu pot fi redistribuite brut.
+
+Commitul `861fe57` (`Ship live mission citadel and English UI`) a fost creat după testele și review-ul final, apoi publicat pe `origin/master`. Remote și local coincid, ahead/behind 0/0, staging gol. Configurarea Pi live cerută anterior rămâne pusă pe pauză și `.env` nu a fost schimbat. RF-K01d, RF-K02 și RF-L10N-01 sunt acum pe GitHub.
 
 ### 19-09 — RF-K02 închis: cetatea ocupă în sfârșit ecranul
 

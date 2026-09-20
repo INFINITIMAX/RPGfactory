@@ -46,10 +46,10 @@ Impeccable ran once as required. It was degraded because HTML parser modules are
 ## Runtime
 
 - Server restarted with explicit prior authorization to load translated backend code.
-- HTTP 200 on port 5311; server PID 49348.
+- HTTP 200 on port 5311.
 - `.env` was not changed.
 - Pi live-root configuration remains paused until localization/publication is complete.
 
 ## Publication
 
-No commit or push has occurred yet. Publication waits for Reviewer verdict and exact safe manifest inspection.
+Reviewer final: **ACCEPT / Merge OK**. A 45-file explicit manifest passed forbidden-path, private-marker and diff checks. Commit `861fe57` (`Ship live mission citadel and English UI`) was pushed successfully to `origin/master`; local and remote match with ahead/behind 0/0. Secrets, live data, logs, private inspiration, temporary captures and restricted raw assets were excluded.
