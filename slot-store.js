@@ -1,26 +1,23 @@
-// slot-store.js — CRUD peste `profile_slots` (RF-05c, migrations/004-sloturi.sql),
-// injectabil ca `layout.js`. Persistă memoria lui `assignSlots` (world.js)
-// între cereri și între restart-uri ale serverului — un specialist nu sare
-// din slot doar pentru că serverul a repornit.
+// slot-store.js — CRUD over `profile_slots` (RF-05c,
+// migrations/004-sloturi.sql), injectable like `layout.js`. Persists
+// `assignSlots` memory (world.js) across requests and server restarts so a
+// specialist does not change slots merely because the server restarted.
 //
-// Fără efecte secundare la require ȘI la `createSlotStore(options)`: baza de
-// date nu se deschide decât lazy, la prima metodă apelată (memoizat) —
-// aceeași regulă ca `profiles.js`/`runs.js`/`layout.js`. Handle propriu,
-// independent de celelalte store-uri — fiecare modul care deschide un handle
-// SQLite răspunde de închiderea lui (lecția RF-02b-b/c), WAL permite ca toate
-// să fie deschise simultan pe același fișier.
+// No side effects on require OR `createSlotStore(options)`: the database opens
+// lazily on the first method call and is memoized, following the same rule as
+// `profiles.js`/`runs.js`/`layout.js`. It owns a handle independent from other
+// stores; each module that opens a SQLite handle is responsible for closing it
+// (RF-02b-b/c), and WAL permits all handles to remain open on the same file.
 //
-// DE CE NU ARE CAS (`expectedRevision`), spre deosebire de `agent_profiles`/
-// `runs`: scrie DOAR serverul însuși, dintr-un singur loc (ruta GET /api/world
-// din server.js), niciodată un client extern printr-un API de mutație expus
-// — nu există niciun endpoint POST/PUT pe sloturi. Nu există concurs de
-// scriere de la doi utilizatori care ar avea nevoie de o verificare
-// optimistă: există doar riscul benign ca două cereri HTTP simultane să
-// recalculeze aproape simultan din același `previous`, ambele producând un
-// rezultat la fel de valid (ca la `observeRun` din runs.js și la `layout.js`
-// — un flux automat de recalculare, nu o intenție de schimbare a unui
-// utilizator care ar putea fi lovită de o scriere concurentă bazată pe o
-// stare veche citită anterior).
+// WHY THERE IS NO CAS (`expectedRevision`), unlike `agent_profiles`/`runs`:
+// only the server writes this data, from one place (GET /api/world in
+// server.js), never an external client through an exposed mutation API. There
+// is no POST/PUT endpoint for slots. No two-user write race requires an
+// optimistic check. The only risk is benign: two simultaneous HTTP requests
+// may recalculate from the same `previous` value at almost the same time and
+// both produce equally valid results, as with `observeRun` in runs.js and
+// `layout.js`. This is an automatic recalculation stream, not a user's change
+// intent vulnerable to a concurrent write based on previously read stale state.
 
 const { openDatabase } = require('./db');
 
@@ -29,8 +26,8 @@ function createSlotStore(options = {}) {
   const migrationsDir = options.migrationsDir;
   const now = options.now || (() => Date.now());
 
-  // Memoizare: deschidem baza o singură dată, la prima nevoie reală — ca la
-  // `layout.js`, cu handle propriu.
+  // Memoize the database opened on first real use, like layout.js, while
+  // retaining an independently owned handle.
   let dbHandle = null;
   function getDb() {
     if (!dbHandle) {
@@ -46,8 +43,8 @@ function createSlotStore(options = {}) {
     }
   }
 
-  // getSlots() -> Map<project, Map<profileId, slotIndex>>, gol dacă tabela
-  // e goală.
+  // getSlots() -> Map<project, Map<profileId, slotIndex>>, empty when the
+  // table is empty.
   function getSlots() {
     const db = getDb();
     const rows = db.prepare('SELECT profile_id, project, slot_index FROM profile_slots').all();
@@ -59,13 +56,12 @@ function createSlotStore(options = {}) {
     return byProject;
   }
 
-  // saveSlots(project, assignment) — înlocuiește TOT ce ține baza pentru
-  // ACEL proiect, ca să corespundă exact cu `assignment` (spre deosebire de
-  // `saveLayout` din layout.js, care înlocuia tot conținutul tabelei —
-  // sloturile se recalculează proiect cu proiect la fiecare /api/world,
-  // fiecare zonă având propria capacitate). Rândurile din `project` care nu
-  // mai apar în `assignment` sunt șterse, restul sunt upsertate, sub o
-  // singură tranzacție — ca schimbarea să se vadă atomic.
+  // saveSlots(project, assignment) replaces EVERYTHING stored for THAT
+  // project so it exactly matches `assignment`. Unlike saveLayout in
+  // layout.js, which replaces all table content, slots are recalculated one
+  // project at a time on every /api/world request because each zone has its
+  // own capacity. Rows in `project` absent from `assignment` are deleted and
+  // the rest are upserted in one transaction so the change is visible atomically.
   function saveSlots(project, assignment) {
     const db = getDb();
     const ts = now();

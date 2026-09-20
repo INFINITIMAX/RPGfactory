@@ -1,25 +1,23 @@
-// layout.js — CRUD peste `hex_layout` (RF-05b, migrations/003-layout.sql),
-// injectabil ca `profiles.js`/`runs.js`. Persistă memoria lui
-// `allocateCells` (hex-layout.js) între cereri și între restart-uri ale
-// serverului.
+// layout.js — CRUD over `hex_layout` (RF-05b, migrations/003-layout.sql),
+// injectable like `profiles.js`/`runs.js`. Persists `allocateCells` memory
+// (hex-layout.js) across requests and server restarts.
 //
-// Fără efecte secundare la require ȘI la `createLayoutStore(options)`: baza
-// de date nu se deschide decât lazy, la prima metodă apelată (memoizat) —
-// aceeași regulă ca `profiles.js`/`runs.js`. Handle propriu, independent de
-// `profilesStore`/`runsStore` — fiecare modul care deschide un handle SQLite
-// răspunde de închiderea lui (lecția RF-02b-b/c), WAL permite ca toate trei
-// să fie deschise simultan pe același fișier.
+// No side effects on require OR `createLayoutStore(options)`: the database is
+// opened lazily on the first method call and memoized, following the same rule
+// as `profiles.js`/`runs.js`. It owns a handle independent from
+// `profilesStore`/`runsStore`; each module that opens a SQLite handle is
+// responsible for closing it (RF-02b-b/c), and WAL permits all three handles
+// to remain open on the same file simultaneously.
 //
-// DE CE NU ARE CAS (`expectedRevision`), spre deosebire de `agent_profiles`/
-// `runs`: scrie DOAR serverul însuși, dintr-un singur loc (ruta
-// GET /api/world din server.js), niciodată un client extern printr-un API
-// de mutație expus — nu există niciun endpoint POST/PUT pe layout. Nu există
-// concurs de scriere de la doi utilizatori care ar avea nevoie de o verificare
-// optimistă: există doar riscul benign ca două cereri HTTP simultane să
-// recalculeze aproape simultan din același `previous`, ambele producând un
-// rezultat la fel de valid (ca la `observeRun` din runs.js — un flux automat
-// de recalculare, nu o intenție de schimbare a unui utilizator care ar putea
-// fi lovită de o scriere concurentă bazată pe o stare veche citită anterior).
+// WHY THERE IS NO CAS (`expectedRevision`), unlike `agent_profiles`/`runs`:
+// only the server writes this data, from one place (GET /api/world in
+// server.js), never an external client through an exposed mutation API. There
+// is no POST/PUT endpoint for layout. No two-user write race requires an
+// optimistic check. The only risk is benign: two simultaneous HTTP requests
+// may recalculate from the same `previous` value at almost the same time and
+// both produce equally valid results, as with `observeRun` in runs.js. This is
+// an automatic recalculation stream, not a user's change intent vulnerable to
+// a concurrent write based on previously read stale state.
 
 const { openDatabase } = require('./db');
 
@@ -28,8 +26,8 @@ function createLayoutStore(options = {}) {
   const migrationsDir = options.migrationsDir;
   const now = options.now || (() => Date.now());
 
-  // Memoizare: deschidem baza o singură dată, la prima nevoie reală — ca la
-  // `profiles.js`/`runs.js`, cu handle propriu.
+  // Memoize the database opened on first real use, like profiles.js/runs.js,
+  // while retaining an independently owned handle.
   let dbHandle = null;
   function getDb() {
     if (!dbHandle) {
@@ -45,7 +43,7 @@ function createLayoutStore(options = {}) {
     }
   }
 
-  // getLayout() -> Map<project, [{q,r}, ...]>, gol dacă tabela e goală.
+  // getLayout() -> Map<project, [{q,r}, ...]>, empty when the table is empty.
   function getLayout() {
     const db = getDb();
     const rows = db.prepare('SELECT project, cells FROM hex_layout').all();
@@ -56,11 +54,11 @@ function createLayoutStore(options = {}) {
     return layout;
   }
 
-  // saveLayout(layoutMap) — înlocuiește TOT conținutul tabelei ca să
-  // corespundă exact cu layoutMap: proiectele dispărute din layoutMap sunt
-  // șterse din tabelă, cele prezente sunt upsertate, cu revizie incrementată.
-  // Totul sub o singură tranzacție — ca schimbarea să se vadă atomic, nu
-  // parțial dacă apelul următor citește exact în timp ce se scrie.
+  // saveLayout(layoutMap) replaces ALL table content to exactly match
+  // layoutMap. Projects absent from layoutMap are deleted; present projects
+  // are upserted with incremented revisions. A single transaction makes the
+  // change visible atomically rather than partially if the next read occurs
+  // during the write.
   function saveLayout(layoutMap) {
     const db = getDb();
     const ts = now();

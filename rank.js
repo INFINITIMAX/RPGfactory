@@ -1,5 +1,5 @@
-// rank.js — calculează rangul unui agent (Fleet Admiral / Captain / Cadet)
-// pornind de la modelul folosit în transcript-ul sesiunii lui Claude Code.
+// rank.js â€” calculates an agent's rank (Fleet Admiral / Captain / Cadet)
+// from the model used in its Claude Code run transcript.
 
 const fs = require('fs');
 const path = require('path');
@@ -8,13 +8,13 @@ const os = require('os');
 const CLAUDE_HOME = path.join(os.homedir(), '.claude');
 const PROJECTS_DIR = path.join(CLAUDE_HOME, 'projects');
 
-// citim doar coada fișierului .jsonl, nu tot fișierul: am văzut transcript-uri
-// de 5MB+, iar modelul din ultima interacțiune apare oricum spre finalul
-// fișierului (liniile mai vechi nu ne interesează pentru rangul curent).
+// Read only the tail of the .jsonl file, not the entire file: transcripts can
+// exceed 5 MB, and the latest interaction's model appears near the end anyway.
+// Older lines do not matter for the current rank.
 const TAIL_BYTES = 20 * 1024;
 
-// cache pe cale de fișier, invalidat pe mtime — evită re-citirea cozii la
-// fiecare poll de 3 secunde dacă transcript-ul nu s-a schimbat între timp.
+// File-path cache invalidated by mtime, avoiding a tail read on every
+// three-second poll when the transcript has not changed.
 const cache = new Map();
 
 function modelToRank(model) {
@@ -26,9 +26,9 @@ function modelToRank(model) {
   return null;
 }
 
-// Claude Code encodează cwd-ul într-un nume de folder înlocuind orice
-// separator de cale (\, /, :) cu '-'. Verificat manual: `C:\Users\Lucian-PC`
-// devine folderul `C--Users-Lucian-PC` (`:` -> `-`, fiecare `\` -> `-`).
+// Claude Code encodes cwd as a folder name by replacing every path separator
+// (\, /, :) with '-'. Manually verified: `C:\Users\<user>` becomes
+// `C--Users-Lucian-PC` (`:` -> `-`, each `\` -> `-`).
 function encodeCwd(cwd) {
   return cwd.replace(/[\\/:]/g, '-');
 }
@@ -49,8 +49,8 @@ function readTail(filePath, size) {
 
 function findLastAssistantModel(text, truncated) {
   const lines = text.split('\n');
-  // dacă am tăiat coada, prima linie poate fi parțială (începe la mijlocul
-  // unui JSON) — o ignorăm ca să nu dăm peste JSON.parse invalid.
+  // When the tail was truncated, the first line may be partial (starting in
+  // the middle of JSON), so ignore it rather than parsing invalid JSON.
   const usableLines = truncated ? lines.slice(1) : lines;
 
   for (let i = usableLines.length - 1; i >= 0; i--) {
@@ -62,8 +62,8 @@ function findLastAssistantModel(text, truncated) {
     } catch (e) {
       continue;
     }
-    // "model" nu e la rădăcina liniei — e imbricat în entry.message.model
-    // (formatul răspunsului Anthropic, nu al liniei de transcript în sine).
+    // "model" is not at the line root; it is nested in entry.message.model
+    // (the Anthropic response shape, not the transcript-line shape itself).
     if (entry.type === 'assistant' && entry.message && entry.message.model) {
       return entry.message.model;
     }
@@ -71,10 +71,9 @@ function findLastAssistantModel(text, truncated) {
   return null;
 }
 
-// Întoarce { rank, model } pentru un (cwd, sessionId) dat. Nu aruncă
-// niciodată — orice eroare (fișier lipsă, permisiuni, etc.) se traduce în
-// { rank: null, model: null }, ca /api/agents să nu cadă din cauza unui
-// singur agent cu transcript inaccesibil.
+// Returns { rank, model } for a given (cwd, sessionId). Never throws: any error
+// (missing file, permissions, etc.) becomes { rank: null, model: null } so one
+// inaccessible agent transcript cannot break /api/agents.
 function getRank(cwd, sessionId) {
   if (!cwd || !sessionId) return { rank: null, model: null };
 

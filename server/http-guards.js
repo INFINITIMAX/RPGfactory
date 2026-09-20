@@ -1,15 +1,14 @@
-// server/http-guards.js — validare de origine (D2/D3) și containment de
-// fișiere statice (D4/D9). Separat de server.js pentru că sunt reguli de
-// securitate care trebuie citite (și, ulterior, testate) izolat de dispatch.
+// server/http-guards.js — origin validation (D2/D3) and static-file
+// containment (D4/D9). Kept separate from server.js so these security rules
+// can be read and tested independently from dispatch.
 
 const path = require('path');
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
 
-// Construiește setul de origini/host-uri permise din portul pe care
-// serverul CHIAR ascultă (aflat abia după listen() — esențial pentru portul
-// efemer 0 folosit de teste). `port` poate fi null dacă încă nu se știe;
-// în acel caz nimic nu trece verificarea, ceea ce e sigur implicit.
+// Builds allowed origins/hosts from the port on which the server ACTUALLY
+// listens, known only after listen() and essential for ephemeral test port 0.
+// `port` may be null when unknown; then nothing passes, a safe default.
 function buildAllowedOrigins(port) {
   if (!port) return { hosts: new Set(), origins: new Set() };
 
@@ -19,11 +18,10 @@ function buildAllowedOrigins(port) {
   return { hosts, origins };
 }
 
-// Verifică Host + Origin pentru o cerere sub /api/. Host trebuie să se
-// potrivească exact (host ȘI port) cu una dintre adresele permise —
-// hostname-ul singur nu mai e suficient (asta era D3). Pentru mutații,
-// Origin e obligatoriu; pentru GET/HEAD, absența lui e acceptată (navigare
-// normală), dar dacă e prezent trebuie să se potrivească.
+// Checks Host + Origin for a request under /api/. Host must exactly match both
+// host AND port of an allowed address; hostname alone is insufficient (D3).
+// Origin is required for mutations. GET/HEAD may omit it for normal navigation,
+// but when present it must match.
 function checkOrigin(req, allowed) {
   const hostHeader = req.headers.host;
   if (!hostHeader || !allowed.hosts.has(hostHeader)) return false;
@@ -37,10 +35,10 @@ function checkOrigin(req, allowed) {
   return allowed.origins.has(origin);
 }
 
-// Rezolvă un pathname (deja fără query string) la o cale absolută sub
-// `publicDir`, cu containment real de director — nu `startsWith` pe prefix
-// de șir (asta era D4: `public-secret` trecea pentru că prefixul „public”
-// se potrivea literal, deși e un director frate, nu un copil).
+// Resolves a pathname (already without a query string) to an absolute path
+// beneath `publicDir`, using real directory containment rather than string-
+// prefix `startsWith`. D4 allowed `public-secret` because "public" matched
+// literally even though it was a sibling directory, not a child.
 function resolveStaticPath(publicDir, pathname) {
   let decoded;
   try {
@@ -49,8 +47,8 @@ function resolveStaticPath(publicDir, pathname) {
     return { ok: false, status: 400, message: 'invalid path encoding' };
   }
 
-  // un byte nul în cale nu are ce căuta într-un nume de fișier legitim —
-  // e fie o încercare de truncare a căii, fie input corupt.
+  // A null byte cannot belong in a legitimate file path. It indicates either
+  // a path-truncation attempt or corrupt input.
   if (decoded.indexOf('\0') !== -1) {
     return { ok: false, status: 400, message: 'invalid path' };
   }
@@ -59,8 +57,8 @@ function resolveStaticPath(publicDir, pathname) {
   const root = path.resolve(publicDir);
   const resolved = path.resolve(root, '.' + rel);
 
-  // containment real: `resolved` trebuie să fie *sub* rădăcină, nu doar să
-  // înceapă cu șirul ei — `path.sep` la final elimină cazul `public-secret`.
+  // Real containment: `resolved` must be *under* the root, not merely start
+  // with its string. The trailing `path.sep` excludes `public-secret`.
   const contained = resolved === root || resolved.startsWith(root + path.sep);
   if (!contained) {
     return { ok: false, status: 403, message: 'forbidden' };

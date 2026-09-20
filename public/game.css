@@ -40,7 +40,7 @@ body {
   border-image-repeat: stretch;
   background: transparent;
   border-style: solid;
-  color: #222; /* textul trebuie citibil pe hârtie deschisă la culoare, nu pe fundal închis */
+  color: #222; /* text must remain readable on light paper, not only on a dark background */
 }
 
 .details.hidden {

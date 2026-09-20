@@ -2,10 +2,10 @@
 
 ## Grenze Variable
 
-- Autor: Omnibus-Type / Google Fonts
-- Sursă: https://github.com/google/fonts/tree/main/ofl/grenze
-- Licență: SIL Open Font License 1.1
-- Fișier: `grenze-variable.ttf`
-- Licența integrală: `OFL-Grenze.txt`
+- Author: Omnibus-Type / Google Fonts
+- Source: https://github.com/google/fonts/tree/main/ofl/grenze
+- License: SIL Open Font License 1.1
+- File: `grenze-variable.ttf`
+- Full license: `OFL-Grenze.txt`
 
-Fontul poate fi redistribuit cu păstrarea licenței OFL.
+The font may be redistributed provided the OFL license is retained.

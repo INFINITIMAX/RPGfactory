@@ -53,7 +53,7 @@ const OPTIONAL_EVENT_FIELDS = {
 };
 
 function fail(code) {
-  const error = new Error(code === 'VALIDATION' ? 'Date de ingestie invalide' : 'Persistența ingestiei a eșuat');
+  const error = new Error(code === 'VALIDATION' ? 'Invalid ingestion data' : 'Ingestion persistence failed');
   error.code = code;
   return error;
 }

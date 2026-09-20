@@ -6,9 +6,51 @@ Fișier viu, scris pentru Lucian, în limbaj normal.
 
 ---
 
+### 19-09 — English-only și publicare sigură
+
+Lucian a clarificat că RPG Factory nu are public din România: tot produsul și repo-ul public trebuie să fie în engleză. Am deschis RF-L10N-01 cu un contract explicit pentru UI-ul nou, jocul legacy, mesajele runtime/API, codul activ și documentația publică. Nu traducem automat datele utilizatorului, nu schimbăm migrațiile deja aplicate și nu rescriem rapoartele istorice — acestea sunt evidență, nu produs livrat.
+
+Lotul s-a închis tehnic pe 20-09-2026. Producția are zero linii cu diacritice românești în scope, UI-ul curent și legacy declară `lang=en`, nu au overflow și au console curate. Testele țintite au trecut 73/73 după ultimele corecții, iar suita completă are **723 pass, 0 fail și 3 skip din 726**. Primul review a blocat corect un comentariu de producție și trei diagnostice de test rămase în română; toate patru au fost traduse, reverificate, iar re-review-ul a dat **ACCEPT / Merge OK**. Titlurile/comentariile din testele istorice neafectate rămân evidență internă, nu produs livrat.
+
+Tot Lucian a decis că munca publicabilă care există numai local trebuie să ajungă pe GitHub. Publicarea vine după manifestul sigur. Sunt excluse obligatoriu `.env`, bazele și sesiunile reale, logurile, inspirația privată și asset-urile Tiny Swords care nu pot fi redistribuite brut. Configurarea Pi live cerută anterior a fost pusă pe pauză înainte să fie schimbat `.env`; traducerea și publicarea au prioritate.
+
+### 19-09 — RF-K02 închis: cetatea ocupă în sfârșit ecranul
+
+Redesignul „Cetatea vie, văzută de sus” este închis tehnic. Suprafața principală este acum un oraș medieval 2D top-down, edge-to-edge, cu castel central, drumuri, districte, apă, vegetație, clădiri, Pawn-uri, aur/proof și predări confirmate. Registrul tehnic nu mai consumă permanent 420 px; se deschide ca drawer modal contextual.
+
+Primul Reviewer a blocat corect trei defecte P1: sprite-sheet-uri strivite, Pawn-uri suprapuse după 20 de posturi și focus care putea ieși din drawer. Runda r2 le-a închis prin cadre sursă reale și proporții native, poziții overflow unice până la limita publică și izolare modală completă cu `inert`, focus trap și restaurare. Tester r3 a corectat zece aserții legacy care cereau greșit ID-uri native sau erori brute; confidențialitatea nu a fost slăbită.
+
+Validarea browser a găsit încă un defect real după închiderea drawer-ului: focus restoration muta intern `#main.scrollLeft` la 399 px și tăia partea stângă a hărții. `overflow:clip` elimină scroll-container-ul; după remediere, desktop 1440×900 și mobil 390×844 au `worldX=0`, overflow 0, focus corect și consolă cu 0 erori/0 warnings. Capturile sunt `RF-K02-desktop-final.png` și `RF-K02-mobile-final.png`.
+
+Dovezi finale: **71/71 țintit**, **721 pass, 0 fail, 3 skip din 724**, syntax și `git diff --check` PASS. Reviewer-ul final a dat **ACCEPT / Merge OK**, fără findings. Serverul temporar 5327 a fost închis. Serverul real 5311 era deja oprit și nu a fost restartat fără aprobare. Git rămâne la checkpoint-ul public `05801ec`, sincronizat 0/0 cu `origin/master`; zero fișiere staged. RF-K01d + RF-K02 rămân locale și necomise. Nu s-a făcut commit, merge sau push.
+
+Conform cererii lui Lucian, ne oprim aici. Orice etapă nouă, restart real sau publicare necesită o instrucțiune separată.
+
+### 18-09 — RF-K01b3c închis; fundația se oprește aici
+
+Reader-ul și persistența de misiuni/proof au trecut validarea finală: **24 pass, 0 fail, 1 skip țintit** și **695 pass, 0 fail, 3 skip din 698 complet**. Syntax și `git diff --check` sunt PASS; serverul a rămas PID **9908**. Primul Reviewer a blocat corect monotonia timestampului intern și warnings falsificate neplafonate. Coder a remediat ambele, Tester a adăugat regresiile, iar al doilea Reviewer fresh a dat **ACCEPT / Merge OK**, fără findings noi. P1 și P2 sunt închise.
+
+RF-K01b3c este închis tehnic. Lucian a autorizat separat commit-ul cu exact cele patru fișiere publice; commit creat: `05801ec` (`Add bounded Pi mission persistence`), 722 inserții și 1 ștergere. Lucian a autorizat apoi separat push-ul: `48c3b6f..05801ec` publicat pe `origin/master`; HEAD și remote coincid la `05801ec9f9e0f056aaaf72b64ffc1c7129c53a6d`, ahead/behind 0/0. Nu s-au accesat date Pi reale. Lucian a semnalat justificat că fundația a consumat prea mult timp fără suficient rezultat vizibil. Decizia Planner-ului: nu mai extindem infrastructura; următorul lot trebuie să livreze direct misiuni, gold/proof și handoff-uri vizibile pe hartă.
+
+### 18-09 — RF-K01d pornit: acum construim ce se vede
+
+Lucian a spus „go” pentru lotul vizibil. Am oprit extinderea fundației și am fixat un singur rezultat: misiunea Pi apare în regat, fiecare proof real devine aur inspectabil, iar o predare este desenată numai când două run-uri opace se corelează cu Pawn-uri și timestampurile confirmă ordinea. Lipsa dovezii rămâne neconfirmată; nu inventăm pipeline-ul.
+
+Lotul citește request-time numai un root mission absolut configurat explicit. Nu scrie în baza reală, nu deschide path/URL privat și nu instalează reporter. Am aplicat `ai-native-sdlc`, `impeccable`, `playwright-cli` și `unlazy`; designul rămâne masa de comandă Tiny Swords existentă. Gate-urile K01D-1…K01D-14 și decizia I53 au fost scrise înainte de cod.
+
+### 18-09 — RF-K01d acceptat: misiuni, predări și aur pe hartă
+
+Vertical slice-ul este complet: endpointul read-only combină snapshotul kingdom cu misiunile scanate request-time, fără DB write; run-urile se leagă de Pawn numai prin același ID opac; predările apar numai între run-uri consecutive corelate cu timestampuri compatibile; fiecare proof allowlisted produce exact o monedă și un item inspectabil. Canvas, rail, lista DOM și inspectorul folosesc același snapshot. Nu există resolver/Open sau expunere de target privat.
+
+Coder-ul a livrat produsul, Tester-ul a adăugat projector/server/HUD/Canvas tests, iar Planner-ul a găsit și închis efectul SQLite al fallback-ului mission-board. Capturile intermediare au arătat Pawn-uri/aur prea mici și două overlap-uri; polish-ul final a mărit harta operațională, a adăugat rol/lifecycle pe Pawn și a separat plannerul de seif/tester. Captura finală 1440×1000 este `docs/handoff/RF-K01d-desktop-final.png`, cu 5 proof-uri, 3 predări confirmate, rail 420px și consola browserului curată.
+
+Dovezi finale: **33/33 țintit**, **717 pass, 0 fail, 3 skip din 720 complet**, syntax și `git diff --check` PASS. Detectorul Impeccable a ieșit 0 findings, dar în mod degradat din cauza parserelor lipsă. Reviewer-ul fresh a dat **ACCEPT / Merge OK**, fără findings.
+
+În prima încercare Playwright cu server Node temporar, listenerul real 5311/PID 9908 s-a oprit; cauza nu este demonstrată. Gate-ul PID neschimbat rămâne nebifat literal. Lucian a autorizat separat restartul; aplicația rulează acum persistent pe PID **48192**, `/` răspunde HTTP 200, iar kingdom este `ready/fresh` cu 2 noduri. Mission-board real este momentan `unavailable` cu 0 misiuni deoarece nu există încă un root mission absolut configurat explicit. Nu îl descoperim și nu scriem `.env` automat. Nu s-a făcut commit sau push.
+
 ## UNDE SUNTEM ACUM
 
-**16-09-2026.** (verificat și corectat la această dată — rândul de mai jos era neactualizat de o zi, vezi „CE A MERS PROST" pentru cum am prins-o)
+**19-09-2026.** RF-K02 este închis tehnic și acceptat; lucrul se oprește aici până la o instrucțiune nouă.
 
 Aplicația **se vede** — hartă cu hexagoane, personaje, iarbă și clădiri, plus tabelele de profiluri/sesiuni. Fundația (server, bază de date) și primele două ecrane vizibile (RF-04, RF-05) sunt gata.
 
@@ -20,23 +62,50 @@ Aplicația **se vede** — hartă cu hexagoane, personaje, iarbă și clădiri, 
 | RF-02b | profilurile agenților, salvate permanent, cu API | ✅ gata (370/370 teste), **urcat pe GitHub** |
 | RF-02c | sesiuni observate, asociere la profiluri | ✅ gata (442/442 teste), **urcat pe GitHub** |
 | RF-03a | citirea reală din Claude Code | ✅ gata (459/459 teste), **urcat pe GitHub** |
-| RF-03b / RF-K01b | citirea reală din Pi + recovery/deduplicare + reporter opțional | 🟨 b1 + b2 gata; **b3a SQLite atomic este în lucru** |
+| RF-03b / RF-K01b | citirea reală din Pi + recovery/deduplicare + misiuni/proof | ✅ b1–b3c acceptate; b4 reporter rămâne opțional |
 | RF-04 | **primul ecran vizibil**: tabele, inspector | ✅ gata (497/497 teste), **urcat pe GitHub** |
 | RF-05 | harta: hexagoane, memorie, personaje, sprite-uri reale | ✅ **gata complet** (RF-05a/b/c/e — RF-05d respins, înlocuit), 567/567 teste, **urcat pe GitHub** |
 | RF-06 | consum de tokeni, istoric, alerte | ⬜ |
 | RF-K01a | contractul pur și sigur pentru statusurile Pi | ✅ gata (11/11 țintit, 595/595 complet, review ACCEPT), checkpoint publicat |
-| RF-K01 | un singur regat viu: Pi, ierarhie, mining/work proof, meniuri Tiny Swords | 🟨 în lucru; status + events gata, persistarea b3a/b3b/b3c a început |
+| RF-K01 | un singur regat viu: Pi, ierarhie, mining/work proof, meniuri Tiny Swords | 🟨 mission board, gold/proof și handoff-uri sunt acceptate; lipsește configurarea explicită a root-ului mission real |
+| RF-K02 | redesign „Cetatea vie”: hartă medievală dominantă + registru contextual | ✅ acceptat tehnic, 721/724 teste, review ACCEPT; local/necomis |
 | RF-07 | verificare pe date reale, 20 agenți / 5 proiecte | ⬜ numai după acceptarea regatului unic |
 
-**Pe GitHub:** ultimul checkpoint este `2d8049c` (`Add safe Pi subagents status contract`, RF-K01a). La 16-09-2026, Lucian a autorizat separat numai această publicare. Autorizarea a fost consumată și nu acoperă RF-K01b sau alte push-uri.
+**Pe GitHub:** ultimul checkpoint este `05801ec` (`Add bounded Pi mission persistence`), sincronizat cu `origin/master`. RF-K01d și RF-K02 sunt acceptate, dar rămân locale și necomise. Autorizarea anterioară a fost consumată și nu acoperă un nou commit/push.
 
-**Datele tale:** neatinse. `data/state.json` nemodificat din 13 septembrie. Baza nouă se construiește **alături**, nu peste. **Serverul tău de pe portul 5311 rulează** (l-am pornit eu, 15-09-2026, la cererea ta, ca să vezi harta — `node --env-file=.env server.js`, în fundal, PID poate diferi dacă a fost repornit între timp). Am creat manual 4 profiluri de test (`specialist-test-1..4`) direct în baza ta reală, doar ca să populeze harta pentru verificare — pot fi șterse oricând ceri.
+**Datele tale:** neatinse de testele RF-K01d/RF-K02; validarea a folosit exclusiv roots, baze și servere temporare sintetice. Serverul real de pe portul 5311 a fost găsit oprit în 19-09-2026 și nu a fost restartat fără aprobare. Mission-board real rămâne neconfigurat până la un root explicit. Am creat manual anterior 4 profiluri de test (`specialist-test-1..4`) direct în baza ta reală, doar ca să populeze harta pentru verificare — pot fi șterse oricând ceri.
 
 **Documente care NU sunt pe GitHub, doar local** (decizia ta, 14-09-2026, reconfirmată 16-09-2026): `instructiuni.md`, `AGENTS.md`, `TASKS.md`, `GATES.md`, `spec.md`, `plan.md`, `docs/DECISIONS.md`, `docs/PARITY.md`, `docs/INTEGRATIONS.md`. Dacă vreodată se pierde acest folder de pe disc, guvernanța proiectului se pierde cu el — doar codul rămâne pe GitHub.
 
 **Deschis, nerezolvat:** RF-UI-01 trece tehnic (584/584 teste și review funcțional ACCEPT), dar Lucian a respins direcția de produs. S-a început invers: mai multe proiecte și un HUD generic înaintea unui singur regat complet viu. Următoarea direcție este acum single-kingdom-first; integrarea Pi este prima dependență, nu o etapă ulterioară.
 
 ---
+
+### 17-09 — Corecție de direcție: desktop live, fără gate mobil
+Lucian a corectat explicit scopul: RPG Factory este un instrument local, numai pentru laptopul lui, ca să vadă agenții și să oprească overengineering-ul. Capturile și gate-ul mobil au fost introduse greșit de Planner din practici web generale și nu mai sunt cerințe.
+
+Verificarea tehnică a găsit ruptura reală: UI-ul RF-K01c și endpointul citeau numai ledger-ul SQLite, dar serverul nu alimenta ledger-ul; capturile sintetice nu dovedeau utilitatea reală. Lucian a autorizat acces read-only la artefactele Pi locale. Corecția minimă activă este un reader request-time opt-in din roots absolute explicite, fără polling/watcher nou și fără scriere în ledger; ledger-ul rămâne fallback. Proba reală va raporta numai totaluri/stări allowlisted, fără IDs sau căi.
+
+### 17-09 — RF-K01c pornit: Pi devine regatul vizibil
+Am început lotul vizual numai după închiderea b3b. Am aplicat `ai-native-sdlc`, `impeccable`, `redesign-existing-projects`, `design-taste-frontend`, `web-design-guidelines` și `playwright-cli`. Direcția cerută de Lucian este fixă: Tiny Swords pentru lume și meniuri; vechiul rail modern mat nu este autoritate. Build-ul este code-led, iar contractul de direcție a fost salvat înainte de cod, cu seed-ul `99d88cea`.
+
+Am fixat K01C-1…K01C-12 înainte de implementare. Serverul va proiecta un singur snapshot Pi focal prin ID-uri opace, fără native IDs sau date private. Lifecycle, atenția și prospețimea rămân separate; numai `running` + `fresh` poate produce mișcare. `needs_attention` nu va fi redenumit blocked, iar lipsa proof-ului nu va desena aur. Registrul existent de profiluri/sesiuni rămâne accesibil ca funcție secundară. Nu atingem b3c/b4, date Pi reale, baza reală, serverul existent, `public/game.*`, commitul sau push-ul.
+
+### 17-09 — RF-K01b3b pornit: legăm cititoarele acceptate de ledger
+Am început coordonatorul pentru un singur run Pi aprobat explicit. El va primi `root`, `runDirectory` și `expectedRunId`, va încărca ultimul cursor confirmat, va citi snapshot-ul prin b1 și evenimentele prin b2b, apoi va salva observația prin tranzacția b3a. Gate-urile K01B3B-1…K01B3B-10 au fost scrise înainte de cod. Nu adăugăm polling global, scanare implicită, misiuni, reporter, server/API/UI sau acces la Pi real în acest lot.
+
+La integrare am găsit o frontieră importantă între loturile deja acceptate: b2b semnalează corect truncarea aceluiași fișier prin `reset: 'truncated'` și offset zero, în timp ce b3a respinge corect regresiile nemarcate pentru același `fileKey`. Decizia I49 păstrează ambele protecții: resetul este permis numai cu markerul strict venit din aceeași citire b2b; orice regresie fără dovadă sau marker incompatibil rămâne respinsă și tranzacția face rollback. Fluxul va folosi Planner 5.6 Sol/high și Coder/Tester/Reviewer 5.6 Terra/medium; numai Planner-ul rulează comenzile.
+
+Prima orchestrare s-a oprit înainte de Tester dintr-o eroare a gate-ului Planner: warning-ul Git despre conversia viitoare LF→CRLF a fost tratat de PowerShell ca excepție, deși verificările reale au ieșit apoi separat cu coordinator syntax 0, ledger syntax 0 și diff-check 0. Coder-ul nu a rulat comenzi și a livrat fișierele cerute. La recitirea codului, Planner-ul a găsit înainte de teste două corecții reale: limitele peste plafoanele b1/b2b erau clasificate târziu ca source failure, iar excepțiile operaționale erau împachetate ca observații `ok:true`. Coder r2 a reparat validarea completă înainte de DB/readers și răspunsurile `ok:false` stabile pentru eșecuri operaționale; gate-ul de sintaxă a trecut.
+
+Prima rulare reală a testelor b3b a avut **3 pass și 2 fail din 5**. Ambele eșecuri sunt în teste, nu în implementarea observată: store-ul redeschis era închis după încercarea de ștergere a directorului, ceea ce produce `EPERM` pe Windows, iar testul de truncare număra greșit patru evenimente deși scenariul inserează corect cinci. În plus, raportul Tester afirma acoperire largă, dar fișierul nu demonstra încă toate limitele, markerii incompatibili, revision/usage și excepția de commit cerute în brief. Tester r2 a reparat ordinea cleanup-ului, numărul greșit și a completat matricea.
+
+Rularea finală este verde: **7/7 țintit**, iar suita completă are **667 pass, 0 fail și 2 skip din 669**. Syntax pentru coordonator, ledger și test este exit 0; `git diff --check` este exit 0, cu un warning local LF→CRLF fără efect; serverul a rămas PID 40652. Reviewer-ul fresh pe 5.6 Terra/medium a dat **ACCEPT / Merge OK**, fără findings P0/P1/P2 și fără cod/test inutil. RF-K01b3b este închis. Nu s-a citit Pi real, nu s-a migrat baza reală, nu s-a activat reporter global și nu s-a făcut commit, push sau deploy. Următorul pas este binding-ul vizual Pi → regat; b3c și b4 nu îl vor bloca.
+
+### 17-09 — RF-K01b3a închis prin review independent
+Noul Reviewer fresh, read-only, a inspectat migrația, store-ul, cele 13 teste și probele Planner-ului fără să ruleze comenzi sau să modifice fișiere. Verdictul final este **ACCEPT / Merge OK**, fără constatări P0/P1/P2. Toate gate-urile K01B3A-1…K01B3A-9 sunt bifate. Raportul integral este în `docs/handoff/RF-K01b3a-r3-reviewer-raport.md`.
+
+Înainte de review, Planner-ul a verificat starea Git: `master` este curat la `61a6c8d` (`Checkpoint Pi lifecycle ingestion pipeline`), sincronizat cu `origin/master`, 0 ahead / 0 behind. Dovezile existente rămân 13/13 teste țintite, 660 pass / 0 fail / 2 skip din 662 complet, syntax și diff-check exit 0, server PID 40652 neschimbat. Nu s-a migrat baza reală, nu s-a citit Pi real, nu s-a activat nimic global și nu s-a făcut commit, push sau deploy. Următorul lot este RF-K01b3b minimal, apoi binding-ul vizual Pi → regat.
 
 ### 17-09 — Predare pregătită pentru un agent/model nou; checkpoint local autorizat
 Lucian a decis să schimbe agentul și modelul după blocarea cotei Reviewer-ului. Am actualizat `HANDOFF.md` cu starea reală, ordinea obligatorie de citire și următoarea acțiune, iar `docs/handoff/NEXT-AGENT-17-09-2026.md` este pachetul scurt de pornire. `TASKS.md` și `GATES.md` consemnează că b3a are toate probele verzi, dar așteaptă verdict independent.
@@ -485,3 +554,34 @@ Pentru fiecare bucată de muncă, același ciclu:
 Toate comenzile le rulez doar eu. E regula ta, din instrucțiunile globale.
 
 **De ce așa:** un agent care scrie cod și tot el zice că merge nu dovedește nimic.
+
+---
+
+## 18-09-2026 — RF-K01c live acceptat, înainte de deploy/commit
+
+- Planner a rulat gate-ul final desktop: syntax pentru server/proiecție/UI/harness, **18/18** teste țintite, suita completă **684 pass, 0 fail, 2 skip din 686** și `git diff --check` PASS (doar warnings locale LF→CRLF).
+- Proba Pi reală autorizată a rămas read-only și temporară: `availability=ready`, 3 noduri focale, 190 alte observații, `active=0` deoarece snapshotul era stale/terminal; răspunsul public nu a expus căi sau ID-uri native.
+- Reviewer fresh read-only a dat **ACCEPT / Merge OK**, fără P0/P1. P2: testul nu dovedea direct non-mutația ledger-ului pe ramura live configurată.
+- Planner a adăugat aserțiunea directă în `test/server-pi-live.test.mjs`; testul live a rămas **3/3**, iar suita completă a rămas **684/686 pass**, cu 2 skip și 0 fail.
+- Gate-urile K01C-1…K01C-12 sunt închise.
+- Lucian a autorizat separat activarea locală și commit-ul. Planner a configurat root-ul Pi numai în `.env` local, a restartat serverul 5311 și a verificat: PID 9908, pagina HTTP 200, `availability=ready`, `freshness=stale`, 2 noduri focale, 191 alte observații, 0 active și fără truncare.
+- Commit-ul a fost autorizat numai pentru cele 15 fișiere publicabile de cod/config exemplu/teste și a fost creat: **`48c3b6f` — `Add Pi ingestion coordinator and live kingdom`**, 1230 inserții / 847 ștergeri. Scanarea staged nu a găsit calea Pi locală; documentele/handoff-urile/datele/asset-urile locale au rămas excluse.
+- Lucian a autorizat separat push-ul. Planner a executat `git push origin master`: **`61a6c8d..48c3b6f`**. Verificarea post-push confirmă `HEAD == origin/master == 48c3b6fcf45ab800bfdfb35d330d8c2b6c04bfdd`, ahead/behind **0/0**.
+
+---
+
+## 18-09-2026 — RF-K01b3c pornit: misiuni și proof opac
+
+- Lucian a cerut continuarea spre un produs vizual veritabil. Etapa începe cu fundația mission/proof; UI-ul cu aur și predări urmează numai după ce datele trec gates.
+- Planner a aplicat `ai-native-sdlc`, `unlazy` și disciplina `pi-subagents`, a recitit contractele proiectului și schema reală Pi Missions.
+- Decizie tehnică I52: proiecția publică păstrează doar stare/timp/mod/usage/proof metadata și ID-uri opace; path/URL se persistă numai intern, fără resolver/API/Open în b3c.
+- Gates K01B3C-1…K01B3C-12 și brief-ul Coder sunt fixate înainte de cod. Serverul local PID 9908, datele Pi reale, `.env`, UI-ul și publicarea nu intră în acest lot.
+- Coder-ul a predat `pi-missions.js` și migrarea `006`, exact în scope, fără să ruleze comenzi. Planner a inspectat codul înainte de Tester.
+- Două riscuri sunt trimise explicit Tester-ului: warnings trebuie deduplicate/bounded, iar elementele proof de după plafon nu trebuie procesate. Tester-ul a scris 11 probe; numai Planner-ul le-a rulat.
+- Prima rulare țintită: syntax PASS; **8 pass, 2 fail, 1 skip**. Ambele eșecuri sunt în test: unul confundă targetul intern cu proiecția publică, celălalt cere un CHECK SQL cross-field necontractat în locul enumului SQL + validării store. Planner nu a schimbat producția și a retrimis corecția la Tester.
+- După corecția Tester: **10 pass, 0 fail, 1 skip**. Planner nu a pornit încă suita completă, deoarece inspecția codului a găsit o problemă reală: warnings erau deduplicate doar după acumulare, iar bugetul proof era consumat după validare și buclele continuau după plafon. Corecția boundedness a fost retrimisă Coder-ului ca r2.
+- Coder r2 a reparat: warning collector bounded cu `Set`, buget proof consumat înainte de validare și oprirea traversării la plafon. Tester-ul a adăugat regresia exactă.
+- Rerulare Planner intermediară: b3c țintit **11 pass, 0 fail, 1 skip din 12**. Suita completă: **694 pass, 1 fail, 3 skip din 698**. Singurul fail era un test b3a vechi care presupunea că migrarea 005 rămâne ultima; migrarea aditivă 006 îl face corect fals. Tester r3 a schimbat strict aserțiunea pentru prezența migrării 005, fără schimbare de producție.
+- Validare Planner pre-review RF-K01b3c: syntax PASS; b3a+b3c **24 pass, 0 fail, 1 skip din 25**; full **695 pass, 0 fail, 3 skip din 698**; `git diff --check` PASS; PID port 5311 a rămas **9908**; marker `RF_K01B3C_GATE_OK`.
+- Reviewer final RF-K01b3c: **REJECT / BLOCK**. P1: update-ul real poate păstra același `updated_at` la două commit-uri în aceeași milisecundă. P2: store-ul acceptă warnings falsificate duplicate/supradimensionate și le traversează. TOCTOU same-inode rămâne risc documentat, dar nu blochează lotul. Planner a acceptat findings și a retrimis corecția minimă Coder-ului.
+- Coder r3 a livrat remediile: update timestamp strict monotonic și safe-integer; warnings plafonate înainte de traversare, allowlisted și unice. Tester-ul adaugă acum numai cele două regresii cerute.

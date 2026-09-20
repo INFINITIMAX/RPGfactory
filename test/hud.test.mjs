@@ -225,7 +225,7 @@ async function loadHud() {
     createProfileErrorEl: new FakeElement('span'),
   };
   elements.connectionDotEl.classList.add('connection-dot');
-  elements.connectionLabelEl.textContent = 'conectare…';
+  elements.connectionLabelEl.textContent = 'connecting…';
   elements.connectionIndicatorEl.appendChild(elements.connectionDotEl);
   elements.connectionIndicatorEl.appendChild(elements.connectionLabelEl);
 
@@ -273,11 +273,11 @@ async function loadHud() {
       if (flags.deferGets) {
         return new Promise((resolve, reject) => pendingProfilesGets.push({ resolve, reject }));
       }
-      if (flags.profilesGetShouldThrow) throw new Error('rețea căzută (profiles)');
+      if (flags.profilesGetShouldThrow) throw new Error('network unavailable (profiles)');
       return {
         ok: flags.profilesGetOk,
         status: flags.profilesGetOk ? 200 : 500,
-        json: async () => (flags.profilesGetOk ? state.profiles : { error: 'eroare internă' }),
+        json: async () => (flags.profilesGetOk ? state.profiles : { error: 'internal error' }),
       };
     }
 
@@ -285,11 +285,11 @@ async function loadHud() {
       if (flags.deferGets) {
         return new Promise((resolve, reject) => pendingRunsGets.push({ resolve, reject }));
       }
-      if (flags.runsGetShouldThrow) throw new Error('rețea căzută (runs)');
+      if (flags.runsGetShouldThrow) throw new Error('network unavailable (runs)');
       return {
         ok: flags.runsGetOk,
         status: flags.runsGetOk ? 200 : 500,
-        json: async () => (flags.runsGetOk ? state.runs : { error: 'eroare internă' }),
+        json: async () => (flags.runsGetOk ? state.runs : { error: 'internal error' }),
       };
     }
 
@@ -351,7 +351,7 @@ async function loadHud() {
       };
     }
 
-    throw new Error(`fetch mock: cerere neașteptată ${method} ${url}`);
+    throw new Error(`fetch mock: unexpected request ${method} ${url}`);
   }
 
   const pendingTimers = new Map();
@@ -410,7 +410,7 @@ async function loadHud() {
 
 // === 2.0 accesibilitate și selecție sincronizată ============================
 
-test('rândul de profil este operabil semantic și Enter/Space deschid același profil', async () => {
+test('the profile row is semantically operable and Enter or Space opens the same profile', async () => {
   const app = await loadHud();
   app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-keyboard', name: 'Ada' }));
   const row = app.elements.profilesTbody.childNodes[0];
@@ -423,11 +423,11 @@ test('rândul de profil este operabil semantic și Enter/Space deschid același 
     let prevented = false;
     row.dispatch('keydown', { key, preventDefault() { prevented = true; } });
     assert.equal(prevented, true, `${JSON.stringify(key)} trebuie să oprească acțiunea implicită`);
-    assert.equal(findFieldValue(app.elements.inspectorEl, 'nume'), 'Ada');
+    assert.equal(findFieldValue(app.elements.inspectorEl, 'name'), 'Ada');
   }
 });
 
-test('selecția profilului din HUD emite focus către lume cu profileId-ul exact', async () => {
+test('HUD profile selection emits world focus with the exact profileId', async () => {
   const app = await loadHud();
   app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-focus' }));
 
@@ -438,19 +438,19 @@ test('selecția profilului din HUD emite focus către lume cu profileId-ul exact
   assert.equal(event.detail.profileId, 'p-focus');
 });
 
-test('selecția pawn-ului din lume deschide profilul corespunzător fără buclă de evenimente', async () => {
+test('world Pawn selection opens the matching profile without an event loop', async () => {
   const app = await loadHud();
-  app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-world', name: 'Pawn real' }));
+  app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-world', name: 'Real Pawn' }));
   const before = app.dispatchedWindowEvents.length;
 
   app.sandbox.window.dispatchEvent(new app.sandbox.CustomEvent('rpg:world-profile-select', { detail: { profileId: 'p-world' } }));
 
-  assert.equal(findFieldValue(app.elements.inspectorEl, 'nume'), 'Pawn real');
+  assert.equal(findFieldValue(app.elements.inspectorEl, 'name'), 'Real Pawn');
   const emittedBack = app.dispatchedWindowEvents.slice(before + 1).filter((event) => event.type === 'rpg:profile-selected');
   assert.equal(emittedBack.length, 0, 'selecția venită din lume nu trebuie retrimisă lumii într-o buclă');
 });
 
-test('selectarea unui run asociat mută focusul hărții la profilul asociat', async () => {
+test('selecting an associated run moves map focus to its profile', async () => {
   const app = await loadHud();
   app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-anterior' }));
   app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-asociat' }));
@@ -463,10 +463,10 @@ test('selectarea unui run asociat mută focusul hărții la profilul asociat', a
   const events = app.dispatchedWindowEvents.slice(beforeRun).filter((event) => event.type === 'rpg:profile-selected');
   assert.equal(events.length, 1);
   assert.equal(events[0].detail.profileId, 'p-asociat');
-  assert.equal(findFieldValue(app.elements.inspectorEl, 'id nativ'), 'n1');
+  assert.equal(findFieldValue(app.elements.inspectorEl, 'native ID'), undefined, 'the inspector does not expose the native ID');
 });
 
-test('selectarea unui run neasociat golește explicit focusul pawn-ului anterior', async () => {
+test('selecting an unassociated run explicitly clears prior Pawn focus', async () => {
   const app = await loadHud();
   app.sandbox.applyUpdatedProfile(baseProfile({ id: 'p-anterior' }));
   app.sandbox.applyUpdatedRun(baseRun({ id: 'r-neasociat', profile_id: null }));
@@ -482,7 +482,7 @@ test('selectarea unui run neasociat golește explicit focusul pawn-ului anterior
 
 // === 2.1 reconcileTable ======================================================
 
-test('reconcileTable: listă nouă goală șterge toate rândurile vechi din tbody', async () => {
+test('reconcileTable: a new empty list removes all old tbody rows', async () => {
   const { sandbox } = await loadHud();
   const tbody = sandbox.document.createElement('tbody');
   const rowMap = new Map();
@@ -494,7 +494,7 @@ test('reconcileTable: listă nouă goală șterge toate rândurile vechi din tbo
   assert.equal(rowMap.size, 0);
 });
 
-test('reconcileTable: elemente noi adaugă rânduri, în ordinea listei', async () => {
+test('reconcileTable: new items add rows in list order', async () => {
   const { sandbox } = await loadHud();
   const tbody = sandbox.document.createElement('tbody');
   const rowMap = new Map();
@@ -504,7 +504,7 @@ test('reconcileTable: elemente noi adaugă rânduri, în ordinea listei', async 
   assert.strictEqual(tbody.childNodes[1], rowMap.get('b'));
 });
 
-test('reconcileTable: element existent cu date schimbate actualizează celulele fără să recreeze <tr>', async () => {
+test('reconcileTable: changed data updates cells without recreating the existing tr', async () => {
   const { sandbox } = await loadHud();
   const tbody = sandbox.document.createElement('tbody');
   const rowMap = new Map();
@@ -519,7 +519,7 @@ test('reconcileTable: element existent cu date schimbate actualizează celulele 
   assert.equal(trAfter.children[0].textContent, 'schimbat');
 });
 
-test('reconcileTable: ordine schimbată în lista nouă reordonează rândurile în DOM', async () => {
+test('reconcileTable: changed list order reorders DOM rows', async () => {
   const { sandbox } = await loadHud();
   const tbody = sandbox.document.createElement('tbody');
   const rowMap = new Map();
@@ -531,7 +531,7 @@ test('reconcileTable: ordine schimbată în lista nouă reordonează rândurile 
   assert.deepEqual(tbody.childNodes, [trC, trA, trB], 'rândurile nu au fost reordonate conform noii liste');
 });
 
-test('reconcileTable: element dispărut e șters din tbody ȘI din rowMap (nu rămâne "agățat")', async () => {
+test('reconcileTable: a removed item is deleted from both tbody and rowMap', async () => {
   const { sandbox } = await loadHud();
   const tbody = sandbox.document.createElement('tbody');
   const rowMap = new Map();
@@ -543,7 +543,7 @@ test('reconcileTable: element dispărut e șters din tbody ȘI din rowMap (nu r�
   assert.equal(tbody.childNodes.length, 0);
 });
 
-test('reconcileTable: element cu același id reapărut mai târziu e tratat ca NOU, nu ca resurecție', async () => {
+test('reconcileTable: an item with the same ID returning later is treated as new', async () => {
   const { sandbox } = await loadHud();
   const tbody = sandbox.document.createElement('tbody');
   const rowMap = new Map();
@@ -559,7 +559,7 @@ test('reconcileTable: element cu același id reapărut mai târziu e tratat ca N
 
 // === 2.2 setRowCells =========================================================
 
-test('setRowCells: actualizează celulele existente când numărul de valori e neschimbat', async () => {
+test('setRowCells: existing cells update when the value count is unchanged', async () => {
   const { sandbox } = await loadHud();
   const tr = sandbox.document.createElement('tr');
   sandbox.setRowCells(tr, ['a', 'b']);
@@ -569,7 +569,7 @@ test('setRowCells: actualizează celulele existente când numărul de valori e n
   assert.equal(tr.children[1].textContent, 'y');
 });
 
-test('setRowCells: adaugă celule noi când numărul de valori crește', async () => {
+test('setRowCells: new cells are added when the value count grows', async () => {
   const { sandbox } = await loadHud();
   const tr = sandbox.document.createElement('tr');
   sandbox.setRowCells(tr, ['a']);
@@ -578,7 +578,7 @@ test('setRowCells: adaugă celule noi când numărul de valori crește', async (
   assert.equal(tr.children[2].textContent, 'c');
 });
 
-test('setRowCells: elimină celulele în plus când numărul de valori scade', async () => {
+test('setRowCells: extra cells are removed when the value count shrinks', async () => {
   const { sandbox } = await loadHud();
   const tr = sandbox.document.createElement('tr');
   sandbox.setRowCells(tr, ['a', 'b', 'c']);
@@ -587,7 +587,7 @@ test('setRowCells: elimină celulele în plus când numărul de valori scade', a
   assert.equal(tr.children[0].textContent, 'x');
 });
 
-test('setRowCells: nu rescrie textContent dacă valoarea e deja identică', async () => {
+test('setRowCells: textContent is not rewritten when the value is unchanged', async () => {
   const { sandbox } = await loadHud();
   const tr = sandbox.document.createElement('tr');
   sandbox.setRowCells(tr, ['neschimbat', 'neschimbat2']);
@@ -625,7 +625,7 @@ function baseProfile(overrides) {
   };
 }
 
-test('renderInspector: selecție și date neschimbate NU reconstruiesc inspectorul (bug RF-04-b)', async () => {
+test('renderInspector: unchanged selection and data do not rebuild the inspector (RF-04-b)', async () => {
   const { sandbox, elements } = await loadHud();
   sandbox.applyUpdatedProfile(baseProfile());
   sandbox.selectProfile('p1');
@@ -641,7 +641,7 @@ test('renderInspector: selecție și date neschimbate NU reconstruiesc inspector
   );
 });
 
-test('renderInspector: schimbarea selecției (alt id, aceeași revizie) RECONSTRUIEȘTE inspectorul', async () => {
+test('renderInspector: changing selection with the same revision rebuilds the inspector', async () => {
   const { sandbox, elements } = await loadHud();
   sandbox.applyUpdatedProfile(baseProfile({ id: 'p1', name: 'Alice' }));
   sandbox.applyUpdatedProfile(baseProfile({ id: 'p2', name: 'Bob' }));
@@ -656,10 +656,10 @@ test('renderInspector: schimbarea selecției (alt id, aceeași revizie) RECONSTR
     !elements.inspectorEl.childNodes.includes(marker),
     'inspectorul NU s-a reconstruit la schimbarea selecției — asta e bug-ul semnalat de planner în RF-04-b'
   );
-  assert.equal(findFieldValue(elements.inspectorEl, 'nume'), 'Bob');
+  assert.equal(findFieldValue(elements.inspectorEl, 'name'), 'Bob');
 });
 
-test('renderInspector: aceeași selecție, revizie schimbată RECONSTRUIEȘTE inspectorul', async () => {
+test('renderInspector: changing the revision for the same selection rebuilds the inspector', async () => {
   const { sandbox, elements } = await loadHud();
   sandbox.applyUpdatedProfile(baseProfile({ revision: 1 }));
   sandbox.selectProfile('p1');
@@ -681,7 +681,7 @@ test('renderInspector: aceeași selecție, revizie schimbată RECONSTRUIEȘTE in
 // trecem prin `pollOnce()`, calea REALĂ prin care `pruneSelection()` e chemată
 // în producție.)
 
-test('inspector: elementul selectat dispărut dintr-un poll golește selecția; revenirea ulterioară reconstruiește corect', async () => {
+test('inspector: a selected item missing from a poll clears selection and later return rebuilds correctly', async () => {
   const app = await loadHud();
   app.state.profiles = [baseProfile({ revision: 1 })];
   await app.sandbox.pollOnce();
@@ -704,7 +704,7 @@ test('inspector: elementul selectat dispărut dintr-un poll golește selecția; 
   );
 });
 
-test('inspector: selecția supraviețuiește unui poll fără schimbări reale', async () => {
+test('inspector: selection survives a poll with no real changes', async () => {
   const app = await loadHud();
   app.state.profiles = [baseProfile({ revision: 1 })];
   await app.sandbox.pollOnce();
@@ -719,7 +719,7 @@ test('inspector: selecția supraviețuiește unui poll fără schimbări reale',
 
 // === 2.4 pollOnce — single-flight și token de cerere =========================
 
-test('pollOnce programează exact un ciclu următor prin setTimeout, la POLL_INTERVAL_MS', async () => {
+test('pollOnce schedules exactly one next cycle through setTimeout at POLL_INTERVAL_MS', async () => {
   const app = await loadHud();
   // pollOnce() automat de la încărcarea scriptului a rulat deja o dată (loadHud
   // face `await flush()`) și, în `finally`, a programat exact un timer.
@@ -728,7 +728,7 @@ test('pollOnce programează exact un ciclu următor prin setTimeout, la POLL_INT
   assert.equal(timer.ms, 3000, 'intervalul de sondare nu mai e 3000ms (POLL_INTERVAL_MS)');
 });
 
-test('token de cerere: un răspuns mai vechi, sosit mai târziu, NU suprascrie starea aplicată de un ciclu mai nou', async () => {
+test('request token: an older late response does not overwrite state from a newer cycle', async () => {
   const app = await loadHud();
   app.flags.deferGets = true;
 
@@ -760,7 +760,7 @@ test('token de cerere: un răspuns mai vechi, sosit mai târziu, NU suprascrie s
   assert.deepEqual(names, ['Nou'], 'răspunsul vechi (ciclul 1) a suprascris starea aplicată deja de ciclul mai nou');
 });
 
-test('un eșec de rețea întârziat (ciclu vechi) NU suprascrie indicatorul "conectat" stabilit de un ciclu mai nou', async () => {
+test('a delayed network failure from an old cycle does not overwrite a newer connected indicator', async () => {
   const app = await loadHud();
   app.flags.deferGets = true;
 
@@ -772,7 +772,7 @@ test('un eșec de rețea întârziat (ciclu vechi) NU suprascrie indicatorul "co
   await cycle2;
   assert.ok(app.elements.connectionIndicatorEl.classList.contains('connection-connected'));
 
-  app.pendingProfilesGets[0].reject(new Error('rețea căzută, întârziat'));
+  app.pendingProfilesGets[0].reject(new Error('delayed network failure'));
   await cycle1;
 
   assert.ok(
@@ -781,26 +781,26 @@ test('un eșec de rețea întârziat (ciclu vechi) NU suprascrie indicatorul "co
   );
 });
 
-test('eșec de rețea la sondare declanșează setConnectionState(false); revenirea ulterioară reface "conectat"', async () => {
+test('a polling network failure sets disconnected state and later recovery restores connected state', async () => {
   const app = await loadHud();
   app.flags.profilesGetShouldThrow = true;
   await app.sandbox.pollOnce();
   assert.ok(app.elements.connectionIndicatorEl.classList.contains('connection-retrying'));
-  assert.equal(app.elements.connectionIndicatorEl.textContent, 'reîncercăm...');
+  assert.equal(app.elements.connectionIndicatorEl.textContent, 'disconnected · retrying');
 
   app.flags.profilesGetShouldThrow = false;
   await app.sandbox.pollOnce();
   assert.ok(app.elements.connectionIndicatorEl.classList.contains('connection-connected'));
 });
 
-test('răspuns non-OK (ex. 500) de la /api/profiles sau /api/runs e tratat ca eșec de conexiune', async () => {
+test('a non-OK response from profiles or runs is treated as a connection failure', async () => {
   const app = await loadHud();
   app.flags.runsGetOk = false;
   await app.sandbox.pollOnce();
   assert.ok(app.elements.connectionIndicatorEl.classList.contains('connection-retrying'));
 });
 
-test('setConnectionState păstrează punctul vizual și actualizează numai eticheta dedicată', async () => {
+test('setConnectionState preserves the visual dot and updates only the dedicated label', async () => {
   const app = await loadHud();
   const dot = app.elements.connectionDotEl;
   const label = app.elements.connectionLabelEl;
@@ -809,16 +809,16 @@ test('setConnectionState păstrează punctul vizual și actualizează numai etic
   assert.strictEqual(app.elements.connectionIndicatorEl.childNodes[0], dot);
   assert.strictEqual(app.elements.connectionIndicatorEl.childNodes[1], label);
   assert.ok(dot.classList.contains('connection-dot'));
-  assert.equal(label.textContent, 'conectat');
+  assert.equal(label.textContent, 'connected');
 
   app.sandbox.setConnectionState(false);
   assert.strictEqual(app.elements.connectionIndicatorEl.childNodes[0], dot);
-  assert.equal(label.textContent, 'reîncercăm...');
+  assert.equal(label.textContent, 'disconnected · retrying');
 });
 
 // === 2.5 Acțiunile ===========================================================
 
-test('approveProfile pending blochează dublarea și eliberează disabled/aria-busy la succes', async () => {
+test('approveProfile pending blocks duplicates and releases disabled and aria-busy on success', async () => {
   const app = await loadHud();
   const wait = deferred();
   const errorEl = app.sandbox.document.createElement('span');
@@ -830,7 +830,7 @@ test('approveProfile pending blochează dublarea și eliberează disabled/aria-b
 
   assert.equal(trigger.disabled, true);
   assert.equal(app.elements.inspectorEl.getAttribute('aria-busy'), 'true');
-  assert.match(errorEl.textContent, /aprobă/i);
+  assert.match(errorEl.textContent, /approving profile/i);
   assert.equal(app.calls.patchProfile.length, 1, 'a doua activare pending nu trebuie să expedieze alt PATCH');
 
   await duplicate;
@@ -841,7 +841,7 @@ test('approveProfile pending blochează dublarea și eliberează disabled/aria-b
   assert.equal(app.elements.inspectorEl.getAttribute('aria-busy'), null);
 });
 
-test('approveProfile pending eliberează disabled/aria-busy și păstrează eroarea la eșec', async () => {
+test('approveProfile pending releases disabled and aria-busy while preserving the error on failure', async () => {
   const app = await loadHud();
   const wait = deferred();
   const errorEl = app.sandbox.document.createElement('span');
@@ -851,18 +851,18 @@ test('approveProfile pending eliberează disabled/aria-busy și păstrează eroa
   const pending = app.sandbox.approveProfile(baseProfile(), errorEl, trigger);
   assert.equal(trigger.disabled, true);
   assert.equal(app.elements.inspectorEl.getAttribute('aria-busy'), 'true');
-  wait.reject(new Error('rețea căzută'));
+  wait.reject(new Error('network unavailable'));
   await pending;
 
   assert.equal(trigger.disabled, false);
   assert.equal(app.elements.inspectorEl.getAttribute('aria-busy'), null);
-  assert.equal(errorEl.textContent, 'cererea a eșuat');
+  assert.equal(errorEl.textContent, 'The request failed.');
 });
 
-test('approveProfile: succes aplică profilul din răspuns și golește eroarea locală', async () => {
+test('approveProfile: success applies the response profile and clears the local error', async () => {
   const app = await loadHud();
   const errorEl = app.sandbox.document.createElement('span');
-  errorEl.textContent = 'eroare veche';
+  errorEl.textContent = 'previous error';
   app.impls.patchProfile = (id, body) => ({
     ok: true,
     status: 200,
@@ -877,29 +877,30 @@ test('approveProfile: succes aplică profilul din răspuns și golește eroarea 
   assert.equal(app.elements.profilesTbody.childNodes.length, 1, 'profilul actualizat ar fi trebuit randat în tabel');
 });
 
-test('approveProfile: eșec 409 afișează mesajul din server, nu aplică nicio actualizare', async () => {
+test('approveProfile: 409 shows a generic message without raw error and applies no update', async () => {
   const app = await loadHud();
   const errorEl = app.sandbox.document.createElement('span');
-  app.impls.patchProfile = () => ({ ok: false, status: 409, json: async () => ({ error: 'revizie expirată' }) });
+  app.impls.patchProfile = () => ({ ok: false, status: 409, json: async () => ({ error: 'expired revision PRIVATE' }) });
 
   await app.sandbox.approveProfile(baseProfile({ revision: 1 }), errorEl);
 
-  assert.equal(errorEl.textContent, 'revizie expirată');
-  assert.equal(app.elements.profilesTbody.childNodes.length, 0, 'nu ar fi trebuit aplicată nicio actualizare la eșec');
+  assert.equal(errorEl.textContent, 'The action was not accepted.');
+  assert.equal(errorEl.textContent.includes('expired revision PRIVATE'), false);
+  assert.equal(app.elements.profilesTbody.childNodes.length, 0, 'no update should be applied on failure');
 });
 
-test('approveProfile: excepție de rețea produce mesajul "cererea a eșuat" (nu o eroare nescăpată)', async () => {
+test('approveProfile: a network exception produces the generic request-failed message', async () => {
   const app = await loadHud();
   const errorEl = app.sandbox.document.createElement('span');
   app.impls.patchProfile = () => {
-    throw new Error('rețea căzută');
+    throw new Error('network unavailable');
   };
 
   await assert.doesNotReject(app.sandbox.approveProfile(baseProfile({ revision: 1 }), errorEl));
-  assert.equal(errorEl.textContent, 'cererea a eșuat');
+  assert.equal(errorEl.textContent, 'The request failed.');
 });
 
-test('toggleAssignable: succes trimite starea opusă a lui assignable și aplică rezultatul', async () => {
+test('toggleAssignable: success sends the opposite assignable state and applies the result', async () => {
   const app = await loadHud();
   const errorEl = app.sandbox.document.createElement('span');
   app.impls.patchProfile = (id, body) => ({
@@ -914,14 +915,16 @@ test('toggleAssignable: succes trimite starea opusă a lui assignable și aplic�
   assert.equal(errorEl.textContent, '');
 });
 
-test('toggleAssignable: eșec 400 afișează eroarea de validare', async () => {
+test('toggleAssignable: 400 shows a generic message without raw error and applies no update', async () => {
   const app = await loadHud();
   const errorEl = app.sandbox.document.createElement('span');
-  app.impls.patchProfile = () => ({ ok: false, status: 400, json: async () => ({ error: 'cerere invalidă' }) });
+  app.impls.patchProfile = () => ({ ok: false, status: 400, json: async () => ({ error: 'invalid request PRIVATE' }) });
 
   await app.sandbox.toggleAssignable(baseProfile({ revision: 1 }), errorEl);
 
-  assert.equal(errorEl.textContent, 'cerere invalidă');
+  assert.equal(errorEl.textContent, 'The update was not accepted.');
+  assert.equal(errorEl.textContent.includes('invalid request PRIVATE'), false);
+  assert.equal(app.elements.profilesTbody.childNodes.length, 0, 'the profile must not be updated on failure');
 });
 
 function baseRun(overrides) {
@@ -937,7 +940,7 @@ function baseRun(overrides) {
   };
 }
 
-test('associateRun: succes aplică run-ul actualizat din răspuns', async () => {
+test('associateRun: success applies the updated run from the response', async () => {
   const app = await loadHud();
   const errorEl = app.sandbox.document.createElement('span');
   app.impls.associate = (id, body) => ({
@@ -952,23 +955,25 @@ test('associateRun: succes aplică run-ul actualizat din răspuns', async () => 
   assert.equal(app.elements.runsTbody.childNodes.length, 1);
 });
 
-test('associateRun: 409 cu activeRuns (conflict I24) include lista în mesaj, nu doar "a eșuat"', async () => {
+test('associateRun: 409 with activeRuns reports a generic conflict without IDs or raw error', async () => {
   const app = await loadHud();
   const errorEl = app.sandbox.document.createElement('span');
   app.impls.associate = () => ({
     ok: false,
     status: 409,
-    json: async () => ({ error: 'conflict', activeRuns: [{ id: 'run-activ-1' }, { id: 'run-activ-2' }] }),
+    json: async () => ({ error: 'conflict PRIVATE', activeRuns: [{ id: 'run-activ-1' }, { id: 'run-activ-2' }] }),
   });
 
   await app.sandbox.associateRun(baseRun({ revision: 1 }), 'p1', errorEl);
 
-  assert.match(errorEl.textContent, /run-activ-1/);
-  assert.match(errorEl.textContent, /run-activ-2/);
-  assert.notEqual(errorEl.textContent.trim(), 'conflict', 'mesajul ar fi trebuit să includă lista, nu doar eroarea generică');
+  assert.equal(errorEl.textContent, 'The association was not accepted. The profile already has an active run.');
+  assert.equal(errorEl.textContent.includes('conflict PRIVATE'), false);
+  assert.equal(errorEl.textContent.includes('run-activ-1'), false);
+  assert.equal(errorEl.textContent.includes('run-activ-2'), false);
+  assert.equal(app.elements.runsTbody.childNodes.length, 0, 'run-ul nu trebuie actualizat la conflict');
 });
 
-test('associateRun: fără profil ales produce eroare locală, FĂRĂ nicio cerere trimisă', async () => {
+test('associateRun: no selected profile produces a local error without sending a request', async () => {
   const app = await loadHud();
   const errorEl = app.sandbox.document.createElement('span');
 
@@ -978,19 +983,19 @@ test('associateRun: fără profil ales produce eroare locală, FĂRĂ nicio cere
   assert.equal(app.calls.associate.length, 0, 'nu ar fi trebuit trimisă nicio cerere fără profil ales');
 });
 
-test('associateRun: excepție de rețea produce mesajul "cererea a eșuat"', async () => {
+test('associateRun: a network exception produces the generic request-failed message', async () => {
   const app = await loadHud();
   const errorEl = app.sandbox.document.createElement('span');
   app.impls.associate = () => {
-    throw new Error('rețea căzută');
+    throw new Error('network unavailable');
   };
 
   await app.sandbox.associateRun(baseRun({ revision: 1 }), 'p1', errorEl);
 
-  assert.equal(errorEl.textContent, 'cererea a eșuat');
+  assert.equal(errorEl.textContent, 'The request failed.');
 });
 
-test('dissociateRun: succes aplică run-ul actualizat (fără profil asociat)', async () => {
+test('dissociateRun: success applies the updated run without an associated profile', async () => {
   const app = await loadHud();
   const errorEl = app.sandbox.document.createElement('span');
   app.impls.dissociate = (id) => ({
@@ -1002,45 +1007,50 @@ test('dissociateRun: succes aplică run-ul actualizat (fără profil asociat)', 
   await app.sandbox.dissociateRun(baseRun({ profile_id: 'p1', revision: 1 }), errorEl);
 
   assert.equal(errorEl.textContent, '');
-  assert.equal(app.elements.runsTbody.childNodes[0].children[3].textContent, 'neasociat');
+  assert.equal(app.elements.runsTbody.childNodes[0].children[3].textContent, 'unassociated');
 });
 
-test('dissociateRun: eșec 404 afișează mesajul serverului', async () => {
+test('dissociateRun: 404 shows a generic message without raw error and applies no update', async () => {
   const app = await loadHud();
   const errorEl = app.sandbox.document.createElement('span');
-  app.impls.dissociate = () => ({ ok: false, status: 404, json: async () => ({ error: 'run inexistent' }) });
+  app.impls.dissociate = () => ({ ok: false, status: 404, json: async () => ({ error: 'run inexistent PRIVATE' }) });
 
   await app.sandbox.dissociateRun(baseRun({ revision: 1 }), errorEl);
 
-  assert.equal(errorEl.textContent, 'run inexistent');
+  assert.equal(errorEl.textContent, 'The dissociation was not accepted.');
+  assert.equal(errorEl.textContent.includes('run inexistent PRIVATE'), false);
+  assert.equal(app.elements.runsTbody.childNodes.length, 0, 'the run must not be updated on failure');
 });
 
-test('formularul pending este aria-busy, dezactivează submit-ul și nu dublează POST-ul', async () => {
+test('the pending form is aria-busy, disables submit, and does not duplicate the POST', async () => {
   const app = await loadHud();
   const wait = deferred();
-  app.elements.createProfileNameInput.value = 'Profil pending';
+  app.elements.createProfileNameInput.value = 'Pending profile';
   app.impls.createProfile = () => wait.promise;
 
   const first = app.elements.createProfileForm.dispatch('submit', { preventDefault() {} });
   assert.equal(app.elements.createProfileSubmitEl.disabled, true);
   assert.equal(app.elements.createProfileForm.getAttribute('aria-busy'), 'true');
-  assert.match(app.elements.createProfileErrorEl.textContent, /creează/i);
+  assert.match(app.elements.createProfileErrorEl.textContent, /creating profile/i);
 
   const duplicate = app.elements.createProfileForm.dispatch('submit', { preventDefault() {} });
   assert.equal(app.elements.createProfileSubmitEl.disabled, true);
   assert.equal(app.elements.createProfileForm.getAttribute('aria-busy'), 'true');
   assert.equal(app.calls.createProfile.length, 1);
-  assert.match(app.elements.createProfileErrorEl.textContent, /creează/i, 'activarea duplicată nu trebuie să șteargă mesajul pending');
+  assert.match(app.elements.createProfileErrorEl.textContent, /creating profile/i, 'duplicate activation must not clear the pending message');
 
   await duplicate;
-  wait.resolve({ ok: false, status: 400, json: async () => ({ error: 'nume deja folosit' }) });
+  wait.resolve({ ok: false, status: 400, json: async () => ({ error: 'name already used PRIVATE' }) });
   await first;
   assert.equal(app.elements.createProfileSubmitEl.disabled, false);
   assert.equal(app.elements.createProfileForm.getAttribute('aria-busy'), null);
-  assert.equal(app.elements.createProfileErrorEl.textContent, 'nume deja folosit');
+  assert.equal(app.elements.createProfileErrorEl.textContent, 'The profile could not be created.');
+  assert.equal(app.elements.createProfileErrorEl.textContent.includes('name already used PRIVATE'), false);
+  assert.equal(app.elements.createProfileNameInput.value, 'Pending profile', 'the input must be preserved on failure');
+  assert.equal(app.elements.profilesTbody.childNodes.length, 0, 'profilul nu trebuie adăugat la eșec');
 });
 
-test('formularul de creare profil: nume gol (sau doar spații) produce eroare locală, FĂRĂ nicio cerere trimisă', async () => {
+test('profile form: an empty or whitespace-only name produces a local error without a request', async () => {
   const app = await loadHud();
   app.elements.createProfileNameInput.value = '   ';
   app.elements.createProfileForm.dispatch('submit', { preventDefault() {} });
@@ -1050,9 +1060,9 @@ test('formularul de creare profil: nume gol (sau doar spații) produce eroare lo
   assert.equal(app.calls.createProfile.length, 0, 'nu ar fi trebuit trimisă nicio cerere pentru un nume gol');
 });
 
-test('formularul de creare profil: succes adaugă profilul imediat în tabel (optimist) și golește inputurile', async () => {
+test('profile form: success adds the profile optimistically and clears the inputs', async () => {
   const app = await loadHud();
-  app.elements.createProfileNameInput.value = 'Profil Nou';
+  app.elements.createProfileNameInput.value = 'New Profile';
   app.elements.createProfileSpecializationInput.value = 'backend';
   app.impls.createProfile = (body) => ({
     ok: true,
@@ -1066,25 +1076,26 @@ test('formularul de creare profil: succes adaugă profilul imediat în tabel (op
   assert.equal(app.elements.createProfileNameInput.value, '', 'inputul de nume ar fi trebuit golit la succes');
   assert.equal(app.elements.createProfileSpecializationInput.value, '', 'inputul de specializare ar fi trebuit golit la succes');
   assert.equal(app.elements.profilesTbody.childNodes.length, 1, 'profilul nou ar fi trebuit să apară imediat, fără să aștepte poll-ul următor');
-  assert.equal(app.elements.profilesTbody.childNodes[0].children[0].textContent, 'Profil Nou');
+  assert.equal(app.elements.profilesTbody.childNodes[0].children[0].textContent, 'New Profile');
 });
 
-test('formularul de creare profil: eșec de server afișează eroarea, NU golește inputurile', async () => {
+test('profile form: server failure shows a generic message without raw error and preserves inputs', async () => {
   const app = await loadHud();
-  app.elements.createProfileNameInput.value = 'Profil X';
-  app.impls.createProfile = () => ({ ok: false, status: 400, json: async () => ({ error: 'nume deja folosit' }) });
+  app.elements.createProfileNameInput.value = 'Profile X';
+  app.impls.createProfile = () => ({ ok: false, status: 400, json: async () => ({ error: 'name already used PRIVATE' }) });
 
   app.elements.createProfileForm.dispatch('submit', { preventDefault() {} });
   await flush();
 
-  assert.equal(app.elements.createProfileErrorEl.textContent, 'nume deja folosit');
-  assert.equal(app.elements.createProfileNameInput.value, 'Profil X', 'inputul nu ar fi trebuit golit la eșec');
+  assert.equal(app.elements.createProfileErrorEl.textContent, 'The profile could not be created.');
+  assert.equal(app.elements.createProfileErrorEl.textContent.includes('name already used PRIVATE'), false);
+  assert.equal(app.elements.createProfileNameInput.value, 'Profile X', 'the input must not be cleared on failure');
   assert.equal(app.elements.profilesTbody.childNodes.length, 0);
 });
 
 // === 3. XSS — obligatoriu ====================================================
 
-test('XSS: un nume cu markup apare literal (textContent) în celula tabelului de profiluri, fără elemente copil', async () => {
+test('XSS: a name containing markup remains literal text in the profile table cell', async () => {
   const app = await loadHud();
   const malicious = '<img src=x onerror=alert(1)>';
   app.sandbox.applyUpdatedProfile(baseProfile({ name: malicious }));
@@ -1094,26 +1105,27 @@ test('XSS: un nume cu markup apare literal (textContent) în celula tabelului de
   assert.equal(tr.children[0].childNodes.length, 0, 'celula nu ar fi trebuit să conțină noduri copil (ar însemna markup interpretat, nu text)');
 });
 
-test('XSS: project/native_id cu markup apar literal în inspectorul unui run, nu ca element real', async () => {
+test('XSS: native_id remains absent and a markup-like project appears only as safe inspector text', async () => {
   const app = await loadHud();
   const malicious = '<b>test</b>';
   app.sandbox.applyUpdatedRun(baseRun({ native_id: malicious, project: malicious }));
   app.sandbox.selectRun('r1');
 
-  assert.equal(findFieldValue(app.elements.inspectorEl, 'id nativ'), malicious);
-  assert.equal(findFieldValue(app.elements.inspectorEl, 'proiect'), malicious);
+  assert.equal(findFieldValue(app.elements.inspectorEl, 'native ID'), undefined);
+  assert.equal(findFieldValue(app.elements.inspectorEl, 'project'), 'local project');
+  assert.equal(app.elements.inspectorEl.textContent.includes(malicious), false, 'proiectul care seamănă cu o cale trebuie redacționat');
 });
 
-test('XSS: specializarea cu markup apare literal în inspectorul unui profil', async () => {
+test('XSS: a specialization containing markup remains literal in the profile inspector', async () => {
   const app = await loadHud();
   const malicious = '<script>alert(1)</script>';
   app.sandbox.applyUpdatedProfile(baseProfile({ primary_specialization: malicious }));
   app.sandbox.selectProfile('p1');
 
-  assert.equal(findFieldValue(app.elements.inspectorEl, 'specializare'), malicious);
+  assert.equal(findFieldValue(app.elements.inspectorEl, 'specialization'), malicious);
 });
 
-test('XSS: mock-ul de DOM refuză structural innerHTML (regresie dacă hud.js l-ar reintroduce)', async () => {
+test('XSS: the DOM mock structurally rejects innerHTML if hud.js reintroduces it', async () => {
   const { sandbox } = await loadHud();
   const el = sandbox.document.createElement('div');
   assert.throws(() => {

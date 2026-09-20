@@ -1,111 +1,118 @@
 <!doctype html>
-<html lang="ro">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RPG Factory — masa de comandă</title>
+  <title>RPG Factory — The Living Citadel</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="hud.css">
 </head>
 <body>
   <header id="topbar">
-    <a class="brand" href="#world-section" aria-label="RPG Factory, mergi la hartă">
+    <a class="brand" href="#world-section" aria-label="RPG Factory, go to map">
       <span class="brand-mark" aria-hidden="true"><span></span></span>
-      <span><strong>RPG Factory</strong><small>Consola breslei</small></span>
+      <span><strong>RPG Factory</strong><small>The Living Citadel</small></span>
     </a>
-    <div class="topbar-center" aria-hidden="true">
-      <span class="rule"></span><span>Masa de comandă</span><span class="rule"></span>
+    <div class="kingdom-title" aria-hidden="true">
+      <span class="topbar-rule"></span><span>Pi Kingdom</span><span class="topbar-rule"></span>
     </div>
-    <div id="connection-indicator" class="connection connection-retrying" role="status" aria-live="polite">
-      <span class="connection-dot" aria-hidden="true"></span>
-      <span id="connection-label">conectare…</span>
+    <div class="topbar-actions">
+      <div id="connection-indicator" class="connection connection-retrying" role="status" aria-live="polite">
+        <span class="connection-dot" aria-hidden="true"></span>
+        <span id="connection-label">connecting…</span>
+      </div>
+      <button id="operations-toggle" class="wood-button registry-toggle" type="button"
+        aria-controls="operations-rail" aria-expanded="false">Registry</button>
     </div>
   </header>
 
   <main id="main">
     <section id="world-section" aria-labelledby="world-heading">
-      <div class="world-heading">
-        <h1 id="world-heading">Regatul Pi</h1>
-        <div class="map-controls" aria-label="Controale hartă">
-          <button id="map-zoom-out" type="button" aria-label="Micșorează harta">-</button>
+      <div class="world-heading parchment-ribbon">
+        <div>
+          <span class="eyebrow">Observed kingdom</span>
+          <h1 id="world-heading">Pi Kingdom</h1>
+        </div>
+        <div class="mission-ribbon">
+          <label for="pi-mission-select">Mission</label>
+          <select id="pi-mission-select" aria-describedby="pi-mission-detail"></select>
+          <span id="pi-mission-status" class="count-badge" role="status" aria-live="polite">loading</span>
+        </div>
+        <div class="map-controls" aria-label="Map controls">
+          <button id="map-zoom-out" type="button" aria-label="Zoom out">−</button>
           <output id="map-zoom-value" aria-live="polite">100%</output>
-          <button id="map-zoom-in" type="button" aria-label="Mărește harta">+</button>
-          <button id="map-reset" class="reset-control" type="button">Resetează</button>
+          <button id="map-zoom-in" type="button" aria-label="Zoom in">+</button>
+          <button id="map-reset" class="reset-control" type="button">Center</button>
         </div>
       </div>
       <div id="world-canvas-wrap">
-        <canvas id="world-canvas" width="960" height="720" tabindex="0" role="img"
-          aria-label="Hartă interactivă a ierarhiei Pi"
+        <canvas id="world-canvas" width="1200" height="760" tabindex="0" role="img"
+          aria-label="Interactive top-down map of the Pi citadel"
           aria-describedby="world-description world-status"></canvas>
-        <p id="world-description" class="sr-only">Folosește controalele pentru zoom. Trage harta cu pointerul. Lista accesibilă de sub hartă conține aceleași noduri Pi.</p>
+        <p id="world-description" class="sr-only">Use the controls to zoom. Drag the map with the pointer. The accessible list associated with the map contains the same Pi nodes and the same evidence represented as gold.</p>
         <div class="map-compass" aria-hidden="true"><span>N</span><i></i></div>
-        <div id="world-status" class="world-status" role="status" aria-live="polite">Se încarcă harta…</div>
+        <div id="world-status" class="world-status" role="status" aria-live="polite">Loading map…</div>
+        <section id="pi-inspector" class="map-inspector" aria-live="polite"><p>Select a Pawn or evidence.</p></section>
       </div>
-      <div id="world-pawn-list" class="sr-only canvas-alternative" aria-label="Specialiștii de pe hartă"></div>
+      <div id="world-pawn-list" class="sr-only canvas-alternative" aria-label="Specialists and evidence on the map"></div>
     </section>
 
-    <aside id="operations-rail" aria-label="Registrul operațional">
+    <button id="operations-backdrop" class="drawer-backdrop" type="button" tabindex="-1" aria-label="Close registry"></button>
+    <aside id="operations-rail" class="operations-drawer" role="dialog" aria-modal="true" aria-labelledby="operations-title" aria-hidden="true">
+      <header class="drawer-header">
+        <div><span class="eyebrow">Citadel scroll</span><h2 id="operations-title">Operations Registry</h2></div>
+        <button id="operations-close" class="drawer-close" type="button" aria-label="Close registry">×</button>
+      </header>
       <div id="pi-kingdom-panel" class="kingdom-panel">
         <section class="rail-section kingdom-source" aria-labelledby="pi-source-title">
-          <div class="section-heading"><h2 id="pi-source-title">Sursa Pi</h2><span id="pi-source-status" class="count-badge" role="status" aria-live="polite">loading</span></div>
-          <p id="pi-source-detail" class="kingdom-detail">Se așteaptă observația Pi.</p>
+          <div class="section-heading"><h2 id="pi-source-title">Pi source</h2><span id="pi-source-status" class="count-badge" role="status" aria-live="polite">loading</span></div>
+          <p id="pi-source-detail" class="kingdom-detail">Waiting for a Pi observation.</p>
+        </section>
+        <section id="pi-mission-panel" class="rail-section mission-panel" aria-labelledby="pi-mission-title">
+          <div class="section-heading"><h2 id="pi-mission-title">Mission Ledger</h2></div>
+          <p id="pi-mission-detail" class="kingdom-detail">Waiting for the mission registry.</p>
+          <div id="pi-mission-summary" class="mission-summary" aria-live="polite"></div>
+          <h3>Confirmed Handoffs</h3>
+          <div id="pi-handoffs" class="mission-handoffs" aria-live="polite"></div>
+          <h3>Evidence Vault</h3>
+          <div id="pi-proofs" class="mission-proofs" aria-live="polite"></div>
         </section>
         <section class="rail-section" aria-labelledby="pi-matrix-title">
-          <h2 id="pi-matrix-title">Ierarhie și stare</h2>
-          <div class="table-scroll"><table id="pi-matrix"><thead><tr><th>Nivel</th><th>Total</th><th>Rulează</th><th>Așteaptă</th><th>Pauză</th><th>Atenție</th><th>Necunoscut</th></tr></thead><tbody id="pi-matrix-body"></tbody></table></div>
+          <h2 id="pi-matrix-title">Hierarchy and Status</h2>
+          <div class="table-scroll"><table id="pi-matrix"><thead><tr><th>Level</th><th>Total</th><th>Running</th><th>Waiting</th><th>Paused</th><th>Attention</th><th>Unknown</th></tr></thead><tbody id="pi-matrix-body"></tbody></table></div>
         </section>
         <section class="rail-section" aria-labelledby="pi-tree-title">
-          <div class="section-heading"><h2 id="pi-tree-title">Arbore Pi</h2><span id="pi-tree-count" class="count-badge">0</span></div>
-          <div id="pi-tree" class="pi-tree" aria-label="Arborele execuțiilor Pi"></div>
-        </section>
-        <section id="pi-inspector" class="rail-section pi-inspector" aria-live="polite"><p>Selectează un Pawn pentru inspector.</p></section>
-      </div>
-      <details id="legacy-registry" class="legacy-registry"><summary>Registru profiluri și sesiuni</summary>
-      <div id="rail-overview">
-        <section class="rail-section summary-section" aria-labelledby="summary-title">
-          <div class="section-heading">
-            <h2 id="summary-title">Flotă</h2>
-            <span id="summary-projects" class="count-badge">0 proiecte</span>
-          </div>
-          <dl class="summary-grid">
-            <div><dt>Profiluri</dt><dd id="summary-profiles">0</dd></div>
-            <div><dt>Sesiuni</dt><dd id="summary-runs">0</dd></div>
-            <div><dt>În execuție</dt><dd id="summary-running">0</dd></div>
-            <div><dt>Neasociate</dt><dd id="summary-unassociated">0</dd></div>
-          </dl>
-        </section>
-
-        <section id="profiles-section" class="rail-section" aria-labelledby="profiles-title">
-          <div class="section-heading"><h2 id="profiles-title">Specialiști</h2><span id="profiles-count" class="count-badge">0</span></div>
-          <div class="table-scroll">
-            <table id="profiles-table">
-              <thead><tr><th>Profil</th><th>Specializare</th><th>Aprobare</th><th>Eligibil</th><th>Proiect</th></tr></thead>
-              <tbody id="profiles-tbody"></tbody>
-            </table>
-          </div>
-          <details class="create-profile">
-            <summary>Adaugă profil</summary>
-            <form id="create-profile-form">
-              <label for="create-profile-name">Nume</label>
-              <input type="text" id="create-profile-name" autocomplete="off" required>
-              <label for="create-profile-specialization">Specializare</label>
-              <input type="text" id="create-profile-specialization" autocomplete="off">
-              <button id="create-profile-submit" type="submit">Creează profil</button>
-              <span id="create-profile-error" class="action-error" role="alert"></span>
-            </form>
-          </details>
-        </section>
-
-        <section id="runs-section" class="rail-section" aria-labelledby="runs-title">
-          <div class="section-heading"><h2 id="runs-title">Sesiuni observate</h2><span id="runs-count" class="count-badge">0</span></div>
-          <div class="table-scroll">
-            <table id="runs-table">
-              <thead><tr><th>Harness</th><th>Proiect</th><th>Stare</th><th>Profil</th></tr></thead>
-              <tbody id="runs-tbody"></tbody>
-            </table>
-          </div>
+          <div class="section-heading"><h2 id="pi-tree-title">Pi tree</h2><span id="pi-tree-count" class="count-badge">0</span></div>
+          <div id="pi-tree" class="pi-tree" aria-label="Pi run tree"></div>
         </section>
       </div>
-      <section id="inspector" class="rail-inspector hidden" aria-label="Inspector selecție" aria-live="polite"></section>
+      <details id="legacy-registry" class="legacy-registry">
+        <summary>Profile and run registry</summary>
+        <div id="rail-overview">
+          <section class="rail-section summary-section" aria-labelledby="summary-title">
+            <div class="section-heading"><h2 id="summary-title">Fleet</h2><span id="summary-projects" class="count-badge">0 projects</span></div>
+            <dl class="summary-grid">
+              <div><dt>Profiles</dt><dd id="summary-profiles">0</dd></div>
+              <div><dt>Runs</dt><dd id="summary-runs">0</dd></div>
+              <div><dt>Running</dt><dd id="summary-running">0</dd></div>
+              <div><dt>Unassociated</dt><dd id="summary-unassociated">0</dd></div>
+            </dl>
+          </section>
+          <section id="profiles-section" class="rail-section" aria-labelledby="profiles-title">
+            <div class="section-heading"><h2 id="profiles-title">Specialists</h2><span id="profiles-count" class="count-badge">0</span></div>
+            <div class="table-scroll"><table id="profiles-table"><thead><tr><th>Profile</th><th>Specialization</th><th>Approval</th><th>Eligible</th><th>Project</th></tr></thead><tbody id="profiles-tbody"></tbody></table></div>
+            <details class="create-profile"><summary>Add profile</summary><form id="create-profile-form">
+              <label for="create-profile-name">Name</label><input type="text" id="create-profile-name" autocomplete="off" required>
+              <label for="create-profile-specialization">Specialization</label><input type="text" id="create-profile-specialization" autocomplete="off">
+              <button id="create-profile-submit" type="submit">Create profile</button><span id="create-profile-error" class="action-error" role="alert"></span>
+            </form></details>
+          </section>
+          <section id="runs-section" class="rail-section" aria-labelledby="runs-title">
+            <div class="section-heading"><h2 id="runs-title">Observed Runs</h2><span id="runs-count" class="count-badge">0</span></div>
+            <div class="table-scroll"><table id="runs-table"><thead><tr><th>Harness</th><th>Project</th><th>Status</th><th>Profile</th></tr></thead><tbody id="runs-tbody"></tbody></table></div>
+          </section>
+        </div>
+        <section id="inspector" class="rail-inspector hidden" aria-label="Selection inspector" aria-live="polite"></section>
       </details>
     </aside>
   </main>

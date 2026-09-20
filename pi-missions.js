@@ -272,7 +272,7 @@ function scanPiSubagentsMissions(options) {
 }
 
 function fail(code) {
-  const error = new Error(code === 'VALIDATION' ? 'Date mission invalide' : 'Persistența mission a eșuat');
+  const error = new Error(code === 'VALIDATION' ? 'Invalid mission data' : 'Mission persistence failed');
   error.code = code;
   return error;
 }

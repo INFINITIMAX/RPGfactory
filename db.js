@@ -1,11 +1,11 @@
-// db.js — deschide baza de date SQLite (node:sqlite) și aplică migrațiile
-// versionate din `migrations/`. RF-02a: fundația de stocare, alături de
-// `state.js` (nu îl înlocuiește) — vezi docs/handoff/RF-02a-coder.md.
+// db.js — opens the SQLite database (node:sqlite) and applies versioned
+// migrations from `migrations/`. RF-02a storage foundation alongside, not in
+// place of, `state.js`; see docs/handoff/RF-02a-coder.md.
 //
-// Fără efecte secundare la require (aceeași regulă ca la RF-01/state.js):
-// nimic nu se deschide până la apelul explicit al `openDatabase()`. Nicio
-// cale de fișier nu e constantă de modul — totul e injectabil prin
-// `options`, ca testele să poată folosi `:memory:` sau directoare temporare.
+// No side effects on require, following the RF-01/state.js rule: nothing opens
+// until `openDatabase()` is explicitly called. No file path is a module
+// constant; all paths are injectable through `options` so tests can use
+// `:memory:` or temporary directories.
 
 const fs = require('fs');
 const path = require('path');
@@ -14,7 +14,7 @@ const { DatabaseSync } = require('node:sqlite');
 
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
-// Numele unei migrații: trei cifre + descriere, ex. `001-profiluri.sql`.
+// Migration name: three digits plus description, e.g. `001-profiluri.sql`.
 const MIGRATION_NAME_RE = /^\d{3}-.+\.sql$/;
 
 function listMigrationFiles(migrationsDir) {
@@ -25,12 +25,12 @@ function listMigrationFiles(migrationsDir) {
     if (e.code === 'ENOENT') return [];
     throw e;
   }
-  // Ordinea numerică a numelui e și ordine alfabetică, fiindcă prefixul e
-  // fixat la trei cifre — sortarea de string simplă e suficientă și
-  // deterministă. Migrațiile lipsă din mijloc (001, 003 fără 002) nu sunt
-  // o eroare: numărul e doar un ordonator stabil, nu o secvență obligatorie
-  // fără goluri. Un număr poate fi rezervat sau retras înainte de a fi
-  // aplicat oriunde, fără să blocheze restul.
+  // Numeric name order also matches alphabetical order because the prefix is
+  // fixed at three digits, making simple string sorting sufficient and
+  // deterministic. Missing intermediate migrations (001, 003 without 002)
+  // are not errors: the number is only a stable ordering key, not a mandatory
+  // gapless sequence. A number may be reserved or withdrawn before being
+  // applied anywhere without blocking the rest.
   return entries.filter((name) => MIGRATION_NAME_RE.test(name)).sort();
 }
 
@@ -38,15 +38,14 @@ function digestOf(content) {
   return crypto.createHash('sha256').update(content, 'utf8').digest('hex');
 }
 
-// O migrație care își gestionează singură tranzacția (BEGIN/COMMIT/ROLLBACK/
-// SAVEPOINT) închide sau perturbă tranzacția exterioară deschisă de
-// applyMigrations — un COMMIT din conținut poate face ca schimbările să
-// persiste înainte ca eroarea reală (COMMIT-ul din applyMigrations, fără
-// tranzacție activă de închis) să fie aruncată, lăsând baza pe jumătate
-// migrată deși openDatabase raportează eșec. Respingem înainte de a executa
-// orice, pe bază de căutare textuală — nu e un parser SQL, doar eliminăm
-// comentariile pe o linie (`-- ...`) ca să reducem fals-pozitivele evidente;
-// comentariile pe blocuri și literalele de șir nu sunt tratate special.
+// A migration that manages its own transaction (BEGIN/COMMIT/ROLLBACK/
+// SAVEPOINT) closes or disrupts the outer transaction opened by
+// applyMigrations. An embedded COMMIT can persist changes before the real error
+// (applyMigrations COMMIT with no active transaction) is thrown, leaving a
+// half-migrated database despite openDatabase reporting failure. Reject before
+// execution through text search. This is not a SQL parser; it only removes
+// single-line comments (`-- ...`) to reduce obvious false positives. Block
+// comments and string literals receive no special handling.
 const TRANSACTION_CONTROL_RE = /\b(BEGIN|COMMIT|ROLLBACK|SAVEPOINT)\b/i;
 
 function hasTransactionControlStatement(content) {
@@ -64,10 +63,10 @@ function ensureMigrationsTable(db) {
   `);
 }
 
-// Aplică migrațiile neaplicate încă, în ordine, fiecare în tranzacția ei.
-// Dacă o migrație deja aplicată are alt digest decât cel înregistrat,
-// eșuează zgomotos — fișierul a fost editat după ce a fost aplicat, iar
-// baza de pe disc nu mai corespunde cu ce descrie fișierul.
+// Applies pending migrations in order, each in its own transaction. If an
+// already applied migration has a different digest from the recorded value,
+// fail loudly: the file changed after application and no longer describes the
+// on-disk database.
 function applyMigrations(db, migrationsDir, now) {
   ensureMigrationsTable(db);
 
@@ -86,11 +85,10 @@ function applyMigrations(db, migrationsDir, now) {
     if (applied.has(file)) {
       if (applied.get(file) !== digest) {
         throw new Error(
-          'db.js: migrația "' + file + '" a fost deja aplicată, dar conținutul ei de pe ' +
-          'disc nu mai corespunde digestului înregistrat în schema_migrations. Cineva a ' +
-          'editat o migrație aplicată — baza de date nu mai corespunde cu fișierele. Nu ' +
-          'continuăm automat; corectează fișierul la conținutul original sau adaugă o ' +
-          'migrație nouă pentru schimbarea dorită.'
+          'db.js: migration "' + file + '" was already applied, but its on-disk content ' +
+          'no longer matches the digest recorded in schema_migrations. An applied migration ' +
+          'was edited, so the database no longer matches the files. Automatic startup cannot ' +
+          'continue; restore the original file content or add a new migration for the change.'
         );
       }
       continue;
@@ -98,10 +96,10 @@ function applyMigrations(db, migrationsDir, now) {
 
     if (hasTransactionControlStatement(content)) {
       throw new Error(
-        'db.js: migrația "' + file + '" conține o instrucțiune de control al tranzacției ' +
-        '(BEGIN/COMMIT/ROLLBACK/SAVEPOINT). Tranzacția e gestionată automat de applyMigrations ' +
-        '— o migrație care o controlează singură poate închide tranzacția la mijloc și lăsa ' +
-        'baza pe jumătate migrată deși pornirea raportează eșec. Elimină instrucțiunea din fișier.'
+        'db.js: migration "' + file + '" contains a transaction-control statement ' +
+        '(BEGIN/COMMIT/ROLLBACK/SAVEPOINT). applyMigrations manages the transaction automatically. ' +
+        'A self-managed transaction can close midway and leave the database half-migrated even ' +
+        'though startup reports failure. Remove the statement from the file.'
       );
     }
 
@@ -129,22 +127,21 @@ function openDatabase(options = {}) {
 
   const db = new DatabaseSync(dbPath);
 
-  // Dacă orice pas de mai jos (pragme sau migrații) aruncă, handle-ul
-  // trebuie închis înainte ca eroarea să se propage — altfel rămâne deschis
-  // până la ieșirea procesului. Pe Windows, un fișier deschis nu poate fi
-  // șters, deci o pornire eșuată ar lăsa și un fișier blocat. Eroarea
-  // originală trebuie să iasă neschimbată; o eventuală eroare la închidere
-  // nu are voie s-o mascheze.
+  // If any step below (pragmas or migrations) throws, close the handle before
+  // propagating the error or it stays open until process exit. On Windows, an
+  // open file cannot be deleted, so failed startup would also leave a locked
+  // file. The original error must propagate unchanged; a close error must not
+  // mask it.
   try {
-    // Explicit, chiar dacă SQLite îl are deja implicit — nu depindem tacit
-    // de un implicit care se poate schimba între versiuni.
+    // Explicit even though SQLite already defaults to it; do not rely silently
+    // on a default that may change between versions.
     db.exec('PRAGMA foreign_keys = ON');
 
     if (!isMemory) {
-      // WAL n-are sens pe `:memory:` (nu există fișier de jurnal separat de
-      // bază); pe fișier, SQLite poate refuza tăcut trecerea la WAL în unele
-      // situații (ex. sistem de fișiere fără suport pentru shared memory) —
-      // nu tratăm asta ca eroare, doar citim înapoi valoarea reală.
+      // WAL does not apply to `:memory:` because there is no separate journal
+      // file. For a file database, SQLite may silently refuse WAL in some
+      // situations (such as a filesystem without shared-memory support). Do
+      // not treat that as an error; simply read back the actual value.
       db.prepare('PRAGMA journal_mode = WAL').get();
     }
     db.exec('PRAGMA busy_timeout = 5000');
@@ -155,7 +152,7 @@ function openDatabase(options = {}) {
     try {
       db.close();
     } catch (closeErr) {
-      // ignorăm — eroarea originală e cea relevantă pentru apelant.
+      // Ignore it; the original error is what matters to the caller.
     }
     throw e;
   }

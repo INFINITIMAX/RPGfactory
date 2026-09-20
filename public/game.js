@@ -1,23 +1,22 @@
-// agent-map — randare pe canvas cu sprite-ul de muncitor (Tiny Swords, idle loop)
+// agent-map — Canvas rendering with the worker sprite (Tiny Swords, idle loop)
 
 const POLL_INTERVAL_MS = 3000;
 
 const GRID_COLS = 8;
 const GRID_ROWS = 8;
 const CELL_SIZE = 80;
-const GRID_OFFSET = 40; // distanță de la marginea canvas-ului până la prima celulă
+const GRID_OFFSET = 40; // distance from the Canvas edge to the first cell
 
-const CIRCLE_RADIUS = 28; // folosit ca rază pentru hit-test-ul de click
+const CIRCLE_RADIUS = 28; // radius used for click hit testing
 const COLOR_WORKING = '#2A5FAE';
 const COLOR_WAITING = '#B4801E';
 const COLOR_SLEEPING = '#888';
 const COLOR_DEFAULT = '#888';
 const FALLBACK_GRASS_COLOR = '#4a7c3f';
 
-// T-10 — o zonă per proiect, culoare ciclată dintr-o paletă mică fixă
-// (aceleași nuanțe ca indicatorii de status, plus câteva neutre), aleasă
-// prin hash pe id-ul proiectului (cwd) — stabilă indiferent de ordinea
-// proiectelor la un tick sau altul.
+// T-10 — one zone per project, with a color selected from a small fixed palette
+// (the same hues as the status indicators, plus a few neutrals) by hashing the
+// project ID (cwd). This remains stable regardless of project order in a tick.
 const ZONE_PALETTE = [
   { fill: 'rgba(42, 95, 174, 0.18)', stroke: '#2A5FAE' },
   { fill: 'rgba(180, 128, 30, 0.18)', stroke: '#B4801E' },
@@ -26,13 +25,13 @@ const ZONE_PALETTE = [
   { fill: 'rgba(201, 76, 76, 0.18)', stroke: '#C94C4C' },
   { fill: 'rgba(76, 184, 201, 0.18)', stroke: '#4CB8C9' },
 ];
-const ZONE_JITTER_RADIUS = 12; // deplasare aplicată când mai mulți agenți din același proiect cad pe aceeași celulă
+const ZONE_JITTER_RADIUS = 12; // displacement when multiple agents in one project land in the same cell
 
-const SPRITE_FRAME_SIZE = 192; // fiecare cadru din sheet e 192x192px
-const SPRITE_FRAME_COUNT = 8; // 8 cadre de idle, așezate orizontal
-const RUN_SPRITE_FRAME_COUNT = 6; // 6 cadre de alergare, așezate orizontal
-const SPRITE_ANIMATION_INTERVAL_MS = 125; // 8 cadre/secundă
-const SPRITE_DEST_SIZE = 56; // dimensiunea desenată pe canvas
+const SPRITE_FRAME_SIZE = 192; // each sheet frame is 192x192px
+const SPRITE_FRAME_COUNT = 8; // 8 horizontal idle frames
+const RUN_SPRITE_FRAME_COUNT = 6; // 6 horizontal running frames
+const SPRITE_ANIMATION_INTERVAL_MS = 125; // 8 frames/second
+const SPRITE_DEST_SIZE = 56; // rendered Canvas size
 const STATUS_DOT_RADIUS = 6;
 
 const canvas = document.getElementById('canvas');
@@ -40,11 +39,11 @@ const ctx = canvas.getContext('2d');
 const detailsEl = document.getElementById('details');
 const hiddenPanelEl = document.getElementById('hidden-panel');
 
-// T-12 — camera 2D: sistem de coordonate LUME, separat de pixelii de ecran.
-// camera.x/y = punctul din LUME aflat curent în centrul ecranului.
-// Zoom ancorat pe cursor (principiu portat din bot-crossing, src/core/camera.js:
+// T-12 — 2D camera: WORLD coordinate system, separate from screen pixels.
+// camera.x/y is the WORLD point currently at the center of the screen.
+// Cursor-anchored zoom (a principle ported from bot-crossing, src/core/camera.js:
 // "The wheel zooms at the cursor... the ground point under the pointer is held
-// still while the camera dollies"), cu matematică 2D simplă (nu portăm codul lor).
+// still while the camera dollies"), using simple 2D math rather than their code.
 const camera = { x: 0, y: 0, zoom: 2 };
 const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 3;
@@ -62,50 +61,49 @@ function screenToWorld(sx, sy) {
   };
 }
 
-// T-11 — mișcare reală: agenții apar la SPAWN_POINT, merg spre poziția lor
-// din zonă, și se întorc la SPAWN_POINT înainte să dispară. Portat din
-// bot-crossing (src/agents/astronauts.js), fără pathfinding/steering — canvas
-// 2D plat, fără obstacole, deci linie dreaptă e suficientă.
-// T-12 — SPAWN_POINT e originea lumii: la camera implicită ({x:0,y:0,zoom:1})
-// cade exact în centrul ecranului (worldToScreen(0,0) = centrul canvas-ului).
+// T-11 — real movement: agents appear at SPAWN_POINT, walk to their zone
+// position, and return to SPAWN_POINT before disappearing. Ported from
+// bot-crossing (src/agents/astronauts.js), without pathfinding/steering: the
+// flat 2D Canvas has no obstacles, so a straight line is sufficient.
+// T-12 — SPAWN_POINT is the world origin: with the default camera
+// ({x:0,y:0,zoom:1}), it is exactly at screen center.
 const SPAWN_POINT = { x: 0, y: 0 };
-const MOVEMENT_TICK_MS = 50; // 20 pași/secundă
-const WALK_SPEED = 140; // px/secundă
+const MOVEMENT_TICK_MS = 50; // 20 steps/second
+const WALK_SPEED = 140; // px/second
 const ARRIVE_RADIUS = 6; // px
-const SPAWN_SCALE_RATE = 3; // scale/secundă la apariție
-const LEAVING_SHRINK_RATE = 2.2; // scale/secundă la plecare
+const SPAWN_SCALE_RATE = 3; // scale/second while appearing
+const LEAVING_SHRINK_RATE = 2.2; // scale/second while leaving
 const MOVEMENT_DT = MOVEMENT_TICK_MS / 1000;
 
-let agents = []; // ultimul răspuns de la /api/agents
+let agents = []; // latest response from /api/agents
 let selectedSessionId = null;
 
-// T-11 — poziția AFIȘATĂ curentă a fiecărui agent, separată de poziția-țintă
-// din zonă (computeAgentPositions). Actualizată de updateAgentMovement() la
-// fiecare MOVEMENT_TICK_MS; draw() și hit-test-ul de click citesc de aici, nu
-// poziția-țintă brută — un agent în mișcare trebuie desenat/clicabil acolo
-// unde e efectiv, nu unde va ajunge.
+// T-11 — each agent's currently DISPLAYED position, separate from the target
+// zone position (computeAgentPositions). Updated by updateAgentMovement() every
+// MOVEMENT_TICK_MS; draw() and click hit testing read this rather than the raw
+// target because a moving agent must be drawn/clickable where it actually is.
 const agentMovement = new Map(); // sessionId -> { state, x, y, scale, stateAge, name, activity }
 
-// T-07 — persistența arhivării (vezi state.js + public/merge-state.js).
-// `state` e copia locală de lucru; `baseSnapshot`/`baseUpdatedAt` sunt
-// ultima versiune confirmată de server, folosită ca bază pentru merge la 409.
+// T-07 — archive persistence (see state.js + public/merge-state.js).
+// `state` is the local working copy; `baseSnapshot`/`baseUpdatedAt` are the last
+// server-confirmed version, used as the merge base after a 409.
 let state = { version: 1, archived: [], archivedAt: {}, plots: {}, updatedAt: 0 };
 let baseUpdatedAt = 0;
 let baseSnapshot = { version: 1, archived: [], archivedAt: {}, plots: {}, updatedAt: 0 };
 let pendingSave = null;
 let showHidden = false;
-let knownAgentNames = {}; // sessionId -> name, ca să afișăm numele agenților ascunși care nu mai sunt live
+let knownAgentNames = {}; // sessionId -> name, used to show hidden agents that are no longer live
 
-// T-10 — semnătura ultimului layout de zone salvat (tiparul din bot-crossing,
-// src/main.js): recalculăm la fiecare tick, dar salvăm pe disc doar când
-// layout-ul chiar diferă de ultimul salvat, altfel am scrie la fiecare poll.
+// T-10 — signature of the last saved zone layout (the bot-crossing src/main.js
+// pattern): recalculate every tick but write to disk only when the layout
+// differs from the last saved version, avoiding a write on every poll.
 let lastPlotsSignature = null;
 
-// T-13/T-15 — petic de iarbă decupat din terrain-tilemap (Tiny Swords),
-// desenat ca fundal pe tot ecranul (T-15: nu mai există apă, iarba acoperă
-// mereu tot canvas-ul, independent de zone/agenți). Pattern-ul se creează o
-// singură dată, după încărcarea imaginii sursă, și rămâne fix (nu urmărește
-// camera/zoom-ul — vezi rapoartele T-13/T-15).
+// T-13/T-15 — grass patch cropped from the Tiny Swords terrain tilemap and
+// drawn as the full-screen background (T-15: there is no longer water; grass
+// always covers the whole Canvas regardless of zones/agents). The pattern is
+// created once after the source image loads and remains fixed; it does not
+// follow camera/zoom (see the T-13/T-15 reports).
 const GRASS_PATCH_SX = 40;
 const GRASS_PATCH_SY = 60;
 const GRASS_PATCH_SIZE = 64;
@@ -144,13 +142,13 @@ function drawTower() {
   ctx.drawImage(towerImage, pos.x - destW / 2, pos.y - destH, destW, destH);
 }
 
-// T-14 — decorațiuni pe zone (tufe animate + stânci statice) + nori care
-// plutesc peste apă, ca terenul să nu mai arate ca un dreptunghi plat.
-const BUSH_FRAME_SIZE = 128; // 8 cadre de 128x128, așezate orizontal
+// T-14 — zone decorations (animated bushes and static rocks) plus clouds
+// floating over water, so the terrain no longer looks like a flat rectangle.
+const BUSH_FRAME_SIZE = 128; // 8 horizontal 128x128 frames
 const BUSH_FRAME_COUNT = 8;
-const ROCK_SIZE = 64; // nativ, static
-const DECORATION_DEST_SIZE = 8; // desenată mult mai mică decât celula, ca să nu se suprapună cu sprite-ul agentului
-const DECORATION_OFFSET = 2; // px, distanță față de colțul celulei
+const ROCK_SIZE = 64; // native, static
+const DECORATION_DEST_SIZE = 8; // drawn much smaller than the cell to avoid overlapping the agent sprite
+const DECORATION_OFFSET = 2; // px from the cell corner
 
 const bushImage = new Image();
 let bushImageLoaded = false;
@@ -167,14 +165,14 @@ let rock2ImageLoaded = false;
 rock2Image.onload = () => { rock2ImageLoaded = true; };
 rock2Image.src = '/sprites/rock2.png';
 
-// Decide DETERMINIST (din hash, nu Math.random()) dacă o celulă a unei zone
-// primește o decorațiune — poziția trebuie stabilă între desenări, la fel ca
-// poziționarea agenților pe hash.
+// DETERMINISTICALLY decides (from a hash, not Math.random()) whether a zone
+// cell gets a decoration. Its position must remain stable between draws, just
+// like hash-based agent positioning.
 function decorationForCell(projectId, cell) {
   const h = hashToCellIndex(projectId + ':' + cell.x + ',' + cell.y);
   if (h % 3 === 0) return { type: 'bush' };
   if (h % 3 === 1) return { type: 'rock', variant: h % 2 }; // 0=rock1, 1=rock2
-  return null; // 1 din 3 celule rămâne goală, ca să nu fie prea aglomerat
+  return null; // 1 in 3 cells stays empty to avoid visual clutter
 }
 
 const pawnImage = new Image();
@@ -184,7 +182,7 @@ pawnImage.onload = () => {
 };
 pawnImage.src = '/sprites/pawn-idle.png';
 
-// T-11 — sprite de alergare, folosit cât timp un agent e 'walking'/'leaving'.
+// T-11 — running sprite used while an agent is 'walking'/'leaving'.
 const pawnRunImage = new Image();
 let pawnRunImageLoaded = false;
 pawnRunImage.onload = () => {
@@ -192,8 +190,8 @@ pawnRunImage.onload = () => {
 };
 pawnRunImage.src = '/sprites/pawn-run.png';
 
-// T-17 — cadranul geografic în care cade o poziție din lume, folosit pentru
-// tema vizuală/animația agentului aflat acolo. Y crescător în jos (canvas).
+// T-17 — geographic quadrant containing a world position, used for the visual
+// theme/animation of the agent there. Y increases downward on the Canvas.
 function regionForWorldPos(x, y) {
   if (x > 0 && y > 0) return 'forest';
   if (x > 0 && y < 0) return 'gold';
@@ -220,21 +218,21 @@ let pawnInteractPickaxeImageLoaded = false;
 pawnInteractPickaxeImage.onload = () => { pawnInteractPickaxeImageLoaded = true; };
 pawnInteractPickaxeImage.src = '/sprites/pawn-interact-pickaxe.png';
 
-// T-17 — decorațiuni fixe de cadran (copaci în pădure, aur pe stânci),
-// desenate mereu la poziții fixe din lume, indiferent de proiecte/agenți —
-// ca turnul (T-15).
+// T-17 — fixed quadrant decorations (forest trees and gold on rocks), always
+// drawn at fixed world positions regardless of projects/agents, like the tower
+// in T-15.
 const FOREST_TREE_POSITIONS = [
   { x: 220, y: 220 }, { x: 300, y: 260 }, { x: 260, y: 320 },
 ];
 const GOLD_STONE_POSITIONS = [
   { x: 220, y: -220 }, { x: 300, y: -260 }, { x: 260, y: -320 },
 ];
-const TREE_FRAME_SIZE = 192; // 8 cadre de 192x256
+const TREE_FRAME_SIZE = 192; // 8 frames of 192x256
 const TREE_FRAME_COUNT = 8;
 const TREE_FRAME_HEIGHT = 256;
 const TREE_DEST_WIDTH = 48;
 const TREE_DEST_HEIGHT = 64;
-const GOLD_STONE_SIZE = 128; // nativ, static
+const GOLD_STONE_SIZE = 128; // native, static
 const GOLD_STONE_DEST_SIZE = 32;
 
 const treeImage = new Image();
@@ -271,10 +269,10 @@ function drawRegionLandmarks() {
 
 let currentFrame = 0;
 
-// Poziția pe grilă se calculează dintr-un hash al sessionId, nu din index-ul
-// în array-ul primit de la server. Motiv: dacă ordinea agenților se schimbă
-// între două poll-uri (unul apare/dispare), un agent existent nu trebuie să
-// sară în altă celulă — poziția lui trebuie să fie stabilă în timp.
+// Grid position is calculated from a sessionId hash rather than the index in
+// the server response array. If agent order changes between polls because one
+// appears or disappears, an existing agent must not jump to another cell; its
+// position must remain stable over time.
 function hashToCellIndex(str) {
   let sum = 0;
   for (let i = 0; i < str.length; i++) {
@@ -292,12 +290,12 @@ function cellIndexToPosition(index) {
   };
 }
 
-// T-10 — poziționarea per proiect. `cellIndexToPosition`/grila globală de mai
-// sus nu mai poziționează nimic (păstrată doar pentru că testele existente
-// încă o exercită direct — vezi raportul de predare).
+// T-10 — per-project positioning. `cellIndexToPosition` and the global grid
+// above no longer position anything; they remain only because existing tests
+// still exercise them directly (see the handoff report).
 
-// T-12 — întoarce coordonate de LUME (nu de ecran); conversia la pixeli se
-// face doar la desenare, via worldToScreen().
+// T-12 — returns WORLD coordinates, not screen coordinates; pixel conversion
+// happens only while drawing, through worldToScreen().
 function zoneCellToPixels(cell) {
   return {
     x: cell.x * CELL_SIZE,
@@ -309,19 +307,19 @@ function colorForProject(projectId) {
   return ZONE_PALETTE[hashToCellIndex(projectId) % ZONE_PALETTE.length];
 }
 
-// Un agent își alege celula din zona proiectului lui printr-un hash pe
-// sessionId — poziție stabilă, nu recalculată din ordinea din array.
+// An agent chooses a cell in its project zone via a sessionId hash, producing
+// a stable position rather than one recalculated from array order.
 function cellForAgent(agent, projectCells) {
-  if (!projectCells || projectCells.length === 0) return { x: 0, y: 0 }; // fallback: proiectul n-a primit nicio celulă (pool epuizat)
+  if (!projectCells || projectCells.length === 0) return { x: 0, y: 0 }; // fallback: the project received no cell (pool exhausted)
   const index = hashToCellIndex(agent.sessionId) % projectCells.length;
   return projectCells[index];
 }
 
-// computeAgentPositions — poziția-ȚINTĂ în pixeli a fiecărui agent viu (unde
-// AR TREBUI să fie, în zona lui), cu jitter pentru cei care cad pe aceeași
-// celulă din același proiect (hash-ul nu garantează distribuție unică).
-// T-11: rezultatul e folosit de updateAgentMovement() ca destinație de mers —
-// draw()/click-ul folosesc poziția AFIȘATĂ din agentMovement, nu asta direct.
+// computeAgentPositions — TARGET pixel position for every live agent (where it
+// SHOULD be in its zone), with jitter for agents that land on the same cell in
+// one project because hashing does not guarantee unique distribution.
+// T-11: updateAgentMovement() uses the result as a walking destination; draw()
+// and click handling use the DISPLAYED agentMovement position instead.
 function computeAgentPositions(liveAgents) {
   const groups = new Map(); // "cwd|x,y" -> [{ agent, cell }]
   for (const agent of liveAgents) {
@@ -349,10 +347,9 @@ function computeAgentPositions(liveAgents) {
   return positions;
 }
 
-// T-11 — mișcă `entry` cu până la `WALK_SPEED*MOVEMENT_DT` px spre
-// (targetX,targetY). Întoarce true dacă a ajuns (distanță < ARRIVE_RADIUS sau
-// pasul depășește distanța rămasă), caz în care poziția se fixează exact pe
-// țintă, nu doar "aproape".
+// T-11 — moves `entry` by up to `WALK_SPEED*MOVEMENT_DT` px toward
+// (targetX,targetY). Returns true when it arrives (distance < ARRIVE_RADIUS or
+// the step exceeds the remaining distance), snapping exactly to the target.
 function stepAgentTowards(entry, targetX, targetY) {
   const dx = targetX - entry.x;
   const dy = targetY - entry.y;
@@ -370,9 +367,9 @@ function stepAgentTowards(entry, targetX, targetY) {
   return false;
 }
 
-// T-11 — un pas al mișcării reale: spawning -> walking -> at-site -> leaving
-// -> (dispariție din agentMovement). Rulează separat de bucla de animație a
-// sprite-ului (SPRITE_ANIMATION_INTERVAL_MS), la MOVEMENT_TICK_MS.
+// T-11 — one real-movement step: spawning -> walking -> at-site -> leaving ->
+// removal from agentMovement. Runs at MOVEMENT_TICK_MS, separately from the
+// sprite animation loop (SPRITE_ANIMATION_INTERVAL_MS).
 function updateAgentMovement() {
   const liveAgents = agents.filter((agent) => agent.alive && !state.archived.includes(agent.sessionId));
   const targets = computeAgentPositions(liveAgents);
@@ -398,10 +395,10 @@ function updateAgentMovement() {
       entry.name = agent.name;
       entry.activity = agent.activity;
     } else if (entry.state !== 'leaving') {
-      // Agentul a dispărut din lista de agenți vii (arhivat sau proces mort)
-      // — inclusiv dacă abia apăruse (spawning) sau era pe drum (walking):
-      // trece direct în leaving, ca să se întoarcă la SPAWN_POINT înainte
-      // să dispară complet, nu se șterge instant din agentMovement.
+      // The agent disappeared from the live-agent list (archived or dead
+      // process), including while spawning or walking. Move directly to
+      // leaving so it returns to SPAWN_POINT before disappearing instead of
+      // being removed immediately from agentMovement.
       entry.state = 'leaving';
       entry.stateAge = 0;
     }
@@ -429,10 +426,10 @@ function updateAgentMovement() {
     } else if (entry.state === 'leaving') {
       const arrived = stepAgentTowards(entry, SPAWN_POINT.x, SPAWN_POINT.y);
       entry.scale = Math.max(0, entry.scale - MOVEMENT_DT * LEAVING_SHRINK_RATE);
-      // ȘI, nu SAU: scale-ul ajunge la 0 mult mai repede (~0.45s) decât drumul
-      // de întoarcere la SPAWN_POINT pentru un agent departe pe ecran — cu
-      // "SAU" ar dispărea brusc la mijlocul ecranului, nu la punctul de
-      // ieșire. Dispare doar când chiar a ajuns ȘI s-a micșorat complet.
+      // AND, not OR: scale reaches 0 much faster (~0.45s) than a distant
+      // agent can return to SPAWN_POINT. OR would make it vanish in the middle
+      // of the screen instead of at the exit. Remove it only after it has both
+      // arrived AND fully shrunk.
       if (arrived && entry.scale <= 0) {
         agentMovement.delete(sessionId);
       }
@@ -440,9 +437,9 @@ function updateAgentMovement() {
   }
 }
 
-// drawZones — fundalul, desenat înainte de agenți: un dreptunghi per celulă
-// din zona fiecărui proiect, plus numele proiectului (doar ultimul segment
-// al căii) deasupra celulei celei mai de sus (cea mai de stânga, la egalitate).
+// drawZones — background drawn before agents: one rectangle per cell in each
+// project zone, plus the project name (last path segment only) above the
+// topmost cell, using the leftmost cell to break ties.
 function drawZones() {
   for (const projectId of Object.keys(state.plots || {})) {
     const cells = state.plots[projectId];
@@ -460,8 +457,8 @@ function drawZones() {
       ctx.strokeRect(pos.x - cellSizeScreen / 2, pos.y - cellSizeScreen / 2, cellSizeScreen, cellSizeScreen);
       if (cell.y < topCell.y || (cell.y === topCell.y && cell.x < topCell.x)) topCell = cell;
 
-      // T-14 — decorațiune fixă (din hash), poziționată în colțul
-      // dreapta-jos al celulei, ca să nu se suprapună cu agenții (centrul).
+      // T-14 — fixed hash-derived decoration in the cell's bottom-right
+      // corner so it does not overlap agents at the center.
       const decoration = decorationForCell(projectId, cell);
       if (decoration) {
         const destSize = DECORATION_DEST_SIZE * camera.zoom;
@@ -494,9 +491,9 @@ function drawZones() {
   }
 }
 
-// updateZones — recalculează zonele din agenții vii curenți (T-08:
-// zones.js/allocateCells) și salvează doar dacă layout-ul chiar s-a
-// schimbat față de ultima salvare (tiparul din bot-crossing, src/main.js).
+// updateZones — recalculates zones from current live agents (T-08:
+// zones.js/allocateCells) and saves only when the layout actually changed
+// since the last save (the bot-crossing src/main.js pattern).
 function updateZones() {
   const counts = {};
   for (const agent of agents) {
@@ -505,7 +502,7 @@ function updateZones() {
   }
   const projects = Object.entries(counts)
     .map(([id, size]) => ({ id, size }))
-    .sort((a, b) => b.size - a.size); // cel mai mare primul, cum cere zones.js
+    .sort((a, b) => b.size - a.size); // largest first, as required by zones.js
 
   const previousMap = new Map(Object.entries(state.plots || {}));
   const newPlotsMap = allocateCells(projects, previousMap);
@@ -517,7 +514,7 @@ function updateZones() {
     state.plots = newPlots;
     queueSave();
   } else {
-    state.plots = newPlots; // aceleași date, doar actualizăm referința, fără salvare
+    state.plots = newPlots; // same data; update the reference without saving
   }
 }
 
@@ -525,7 +522,7 @@ function colorForActivity(activity) {
   if (activity === 'working') return COLOR_WORKING;
   if (activity === 'waiting') return COLOR_WAITING;
   if (activity === 'sleeping') return COLOR_SLEEPING;
-  console.log('activity necunoscută:', activity);
+  console.log('unknown activity:', activity);
   return COLOR_DEFAULT;
 }
 
@@ -541,10 +538,10 @@ function draw() {
 
   drawZones();
 
-  // T-11 — se iterează agentMovement, nu agenții vii direct: un agent în
-  // 'leaving' tot trebuie desenat cât "pleacă", chiar dacă nu mai apare în
-  // /api/agents. Poziția/scala desenată vin din agentMovement (afișat
-  // curent), nu din poziția-țintă brută.
+  // T-11 — iterate agentMovement rather than live agents directly: an agent
+  // in 'leaving' must still be drawn while departing even after it disappears
+  // from /api/agents. Drawn position/scale comes from current agentMovement,
+  // not from the raw target position.
   for (const [sessionId, entry] of agentMovement) {
     const screenPos = worldToScreen(entry.x, entry.y);
     const spriteSize = SPRITE_DEST_SIZE * entry.scale * camera.zoom;
@@ -596,9 +593,10 @@ function renderDetails() {
   const agent = agents.find((a) => a.sessionId === selectedSessionId);
   if (!agent) {
     detailsEl.classList.add('hidden');
-    // innerHTML, nu doar textContent — panoul conține markup (butoane) de la
-    // ultima selecție; golirea doar a textului lăsa butoanele vechi în DOM,
-    // ascunse doar vizual prin clasa "hidden" (bug prins de testele T-07).
+    // Use innerHTML rather than only textContent because the panel contains
+    // markup (buttons) from the last selection. Clearing only text left old
+    // buttons in the DOM, hidden only visually by the "hidden" class (a bug
+    // caught by the T-07 tests).
     detailsEl.innerHTML = '';
     return;
   }
@@ -629,9 +627,9 @@ function renderDetails() {
   });
 }
 
-// Ascunde un agent — tiparul optimist din bot-crossing (src/main.js,
-// archiveThread): actualizăm local imediat, deselectăm, re-randăm, apoi
-// programăm salvarea (debounce 500ms în queueSave).
+// Hide an agent using the optimistic bot-crossing pattern (src/main.js,
+// archiveThread): update locally at once, deselect, rerender, then schedule a
+// save with the 500ms queueSave debounce.
 function hideAgent(sessionId) {
   state.archived = [...new Set([...state.archived, sessionId])];
   state.archivedAt = { ...state.archivedAt, [sessionId]: Date.now() };
@@ -652,14 +650,14 @@ function unhideAgent(sessionId) {
   renderHiddenList();
 }
 
-// Listă minimă de agenți ascunși, ca să existe o cale înapoi (Unhide).
-// Numele vin din `knownAgentNames`, populat la fiecare tick din /api/agents —
-// altfel un agent ascuns care nu mai e live nu ar avea de unde să-și ia numele.
+// Minimal list of hidden agents so an Unhide path exists. Names come from
+// `knownAgentNames`, populated from /api/agents on each tick; otherwise a
+// hidden agent that is no longer live would have no available name.
 function renderHiddenList() {
   const count = state.archived.length;
 
   if (!showHidden) {
-    hiddenPanelEl.innerHTML = `<button id="show-hidden-btn">Arată ascunși (${count})</button>`;
+    hiddenPanelEl.innerHTML = `<button id="show-hidden-btn">Show hidden (${count})</button>`;
     document.getElementById('show-hidden-btn').addEventListener('click', () => {
       showHidden = true;
       renderHiddenList();
@@ -675,7 +673,7 @@ function renderHiddenList() {
     .join('');
 
   hiddenPanelEl.innerHTML = `
-    <button id="hide-hidden-btn">Ascunde lista (${count})</button>
+    <button id="hide-hidden-btn">Hide list (${count})</button>
     <ul>${items}</ul>
   `;
   document.getElementById('hide-hidden-btn').addEventListener('click', () => {
@@ -689,17 +687,17 @@ function renderHiddenList() {
   });
 }
 
-// queueSave/saveState — portate din bot-crossing (src/main.js queueSave +
-// src/game/api.js saveState): debounce 500ms, apoi PUT cu baseUpdatedAt; la
-// 409 facem merge pe 3 căi (merge-state.js) cu starea întoarsă de server și
-// reîncercăm, până la 3 încercări în total.
+// queueSave/saveState — ported from bot-crossing (src/main.js queueSave and
+// src/game/api.js saveState): debounce 500ms, then PUT with baseUpdatedAt. On
+// 409, perform a three-way merge (merge-state.js) with the server-returned
+// state and retry, up to three total attempts.
 function queueSave() {
   clearTimeout(pendingSave);
   pendingSave = setTimeout(async () => {
     try {
       state = await saveState(state, 0);
     } catch (e) {
-      console.log('salvarea stării de arhivare a eșuat:', e);
+      console.log('failed to save archive state:', e);
     }
   }, 500);
 }
@@ -719,8 +717,8 @@ async function saveState(localState, attempt) {
   if (res.status === 409) {
     const remote = await res.json();
     if (attempt >= 2) {
-      // am epuizat cele 3 încercări — renunțăm, coloana continuă local,
-      // se reîncearcă la următoarea schimbare
+      // All three attempts are exhausted. Give up for now, keep the column
+      // working locally, and retry after the next change.
       baseSnapshot = structuredClone(remote);
       baseUpdatedAt = remote.updatedAt;
       return localState;
@@ -732,7 +730,7 @@ async function saveState(localState, attempt) {
   }
 
   if (!res.ok) {
-    throw new Error('PUT /api/state a eșuat cu status ' + res.status);
+    throw new Error('PUT /api/state failed with status ' + res.status);
   }
 
   const body = await res.json();
@@ -746,7 +744,7 @@ async function initState() {
     const res = await fetch('/api/state');
     state = await res.json();
   } catch (e) {
-    console.log('nu am putut încărca starea de arhivare, pornesc de la gol:', e);
+    console.log('could not load archive state; starting empty:', e);
     state = { version: 1, archived: [], archivedAt: {}, plots: {}, updatedAt: 0 };
   }
   baseUpdatedAt = state.updatedAt;
@@ -765,10 +763,10 @@ async function openAgentSession(sessionId) {
       body: JSON.stringify({ sessionId }),
     });
     if (!res.ok) {
-      errorEl.textContent = 'nu am putut deschide sesiunea';
+      errorEl.textContent = 'Could not open the session.';
     }
   } catch (e) {
-    errorEl.textContent = 'nu am putut deschide sesiunea';
+    errorEl.textContent = 'Could not open the session.';
   }
 }
 
@@ -782,10 +780,10 @@ async function newSessionForAgent(cwd) {
       body: JSON.stringify({ folder: cwd }),
     });
     if (!res.ok) {
-      errorEl.textContent = 'nu am putut porni o sesiune nouă';
+      errorEl.textContent = 'Could not start a new session.';
     }
   } catch (e) {
-    errorEl.textContent = 'nu am putut porni o sesiune nouă';
+    errorEl.textContent = 'Could not start a new session.';
   }
 }
 
@@ -799,18 +797,17 @@ async function revealAgentFolder(cwd) {
       body: JSON.stringify({ folder: cwd }),
     });
     if (!res.ok) {
-      errorEl.textContent = 'nu am putut deschide folderul';
+      errorEl.textContent = 'Could not open the folder.';
     }
   } catch (e) {
-    errorEl.textContent = 'nu am putut deschide folderul';
+    errorEl.textContent = 'Could not open the folder.';
   }
 }
 
-// T-12 — pan prin drag + distincție drag-vs-click. Nu folosim un listener
-// separat de 'click': mouseup ȘTIE deja dacă mișcarea totală a depășit
-// pragul (dragMoved), deci facem hit-test-ul de selecție direct acolo, doar
-// când NU a fost pan — mai simplu decât să ținem o a doua stare doar pentru
-// a suprima un 'click' care oricum ar urma.
+// T-12 — drag panning with drag-vs-click distinction. No separate 'click'
+// listener is needed: mouseup already KNOWS whether total movement exceeded
+// dragMoved, so selection hit testing happens there only when no pan occurred.
+// This is simpler than tracking a second state merely to suppress the click.
 const DRAG_THRESHOLD_PX = 4;
 let isDragging = false;
 let dragMoved = false;
@@ -851,17 +848,16 @@ window.addEventListener('mousemove', (event) => {
 window.addEventListener('mouseup', (event) => {
   if (!isDragging) return;
   isDragging = false;
-  if (dragMoved) return; // a fost pan, nu selecție
+  if (dragMoved) return; // this was a pan, not a selection
 
   const rect = canvas.getBoundingClientRect();
   const clickX = event.clientX - rect.left;
   const clickY = event.clientY - rect.top;
   const worldClick = screenToWorld(clickX, clickY);
 
-  // T-11 — hit-test pe poziția AFIȘATĂ curentă (agentMovement), nu pe
-  // poziția-țintă: un agent în mișcare trebuie clicabil acolo unde e desenat
-  // efectiv. T-12: comparat în coordonate de LUME, cu raza de hit-test
-  // neschimbată de zoom.
+  // T-11 — hit test the current DISPLAYED agentMovement position, not the
+  // target position: a moving agent must be clickable where it is actually
+  // drawn. T-12: compare in WORLD coordinates with a zoom-invariant radius.
   selectedSessionId = null;
   for (const agent of agents) {
     if (!agent.alive) continue;
@@ -880,8 +876,8 @@ window.addEventListener('mouseup', (event) => {
   renderDetails();
 });
 
-// T-12 — zoom cu rotița, ancorat pe cursor: punctul de lume de sub cursor
-// rămâne exact sub cursor înainte/după schimbarea zoom-ului.
+// T-12 — cursor-anchored wheel zoom: the world point beneath the cursor stays
+// exactly under the cursor before and after the zoom change.
 canvas.addEventListener('wheel', (event) => {
   event.preventDefault();
   const rect = canvas.getBoundingClientRect();
@@ -896,7 +892,7 @@ canvas.addEventListener('wheel', (event) => {
   draw();
 }, { passive: false });
 
-// T-12 — canvas pe tot ecranul: redimensionat la încărcare și la resize.
+// T-12 — full-screen Canvas, resized on load and window resize.
 function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -927,10 +923,9 @@ setInterval(() => {
   draw();
 }, SPRITE_ANIMATION_INTERVAL_MS);
 
-// T-11 — buclă de mișcare, separată de bucla de animație a sprite-ului de mai
-// sus: avansează agentMovement (spawn/mers/plecare) la MOVEMENT_TICK_MS și
-// re-randează, ca mișcarea să se vadă fluid, nu doar la fiecare schimbare de
-// cadru (125ms).
+// T-11 — movement loop separate from the sprite animation loop above. It
+// advances agentMovement (spawn/walk/leave) at MOVEMENT_TICK_MS and rerenders
+// so movement is fluid rather than updating only at each 125ms frame change.
 setInterval(() => {
   updateAgentMovement();
   draw();

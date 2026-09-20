@@ -1,18 +1,16 @@
-// runs.js — CRUD peste schema RF-02c (`runs`), injectabil ca `profiles.js`.
-// Entitatea Run (spec.md §3): o sesiune observată dintr-un harness oarecare,
-// cu identitate nativă a ei, opțional legată de un profil, cu propria stare
-// de lifecycle.
+// runs.js — CRUD over the RF-02c schema (`runs`), injectable like profiles.js.
+// The Run entity (spec.md §3) is an observed run from any harness, with its own
+// native identity, optional profile association, and lifecycle state.
 //
-// Fără efecte secundare la require ȘI la `createRunsStore(options)`: baza de
-// date nu se deschide decât lazy, la prima funcție care are nevoie de ea
-// (memoizat). Handle propriu, independent de `profiles.js` — fiecare modul
-// care deschide un handle SQLite răspunde de închiderea lui (lecția
-// RF-02b-b/c); WAL (deja configurat la RF-02a) permite ca ambele handle-uri
-// să fie deschise simultan pe același fișier.
+// No side effects on require OR `createRunsStore(options)`: the database opens
+// lazily on the first function that needs it and is memoized. It owns a handle
+// independent from profiles.js; each module opening a SQLite handle is
+// responsible for closing it (RF-02b-b/c), and WAL, configured in RF-02a,
+// permits both handles to remain open on the same file simultaneously.
 //
-// IMPORTANT: acest modul NU citește nimic real din Pi/Claude Code.
-// `observeRun` e chemat doar din teste/API cu date sintetice — un adaptor
-// real care sondează harness-urile vine în RF-03.
+// IMPORTANT: this module reads no real Pi/Claude Code data. `observeRun` is
+// called only from tests/API with synthetic data; a real harness-polling
+// adapter arrives in RF-03.
 
 const { openDatabase } = require('./db');
 
@@ -26,14 +24,13 @@ const LIFECYCLES = new Set([
   'unknown',
 ]);
 
-// Lifecycle-urile care înseamnă "sesiune activă" — folosite atât de I24
-// (conflict de execuție), cât și de `getActiveRunsForProfile`.
+// Lifecycles that mean "active run", used by both I24 conflict detection and
+// `getActiveRunsForProfile`.
 const ACTIVE_LIFECYCLES = new Set(['queued', 'running', 'paused']);
 
-// Eroare de modul, cu `code` explicit ca server.js să poată traduce direct
-// în status HTTP, fără să parseze mesaje: 'VALIDATION' -> 400,
-// 'NOT_FOUND' -> 404, 'CONFLICT' -> 409 (cu `activeRuns`/`current` atașat).
-// Ca la profiles.js.
+// Module error with explicit `code` so server.js can translate directly to an
+// HTTP status without parsing messages: 'VALIDATION' -> 400, 'NOT_FOUND' ->
+// 404, 'CONFLICT' -> 409 with `activeRuns`/`current` attached, as in profiles.js.
 function fail(code, message, extra) {
   const e = new Error(message);
   e.code = code;
@@ -50,8 +47,8 @@ function createRunsStore(options = {}) {
   const migrationsDir = options.migrationsDir;
   const now = options.now || (() => Date.now());
 
-  // Memoizare: deschidem baza o singură dată, la prima nevoie reală — ca la
-  // `profiles.js`, dar cu handle propriu (nu partajăm cu profilesStore).
+  // Memoize the database opened on first real use, as in profiles.js, but
+  // retain an independently owned handle rather than sharing profilesStore.
   let dbHandle = null;
   function getDb() {
     if (!dbHandle) {
@@ -84,9 +81,8 @@ function createRunsStore(options = {}) {
       .all(profileId);
   }
 
-  // Citire simplă, expusă și public (utilă mai târziu pentru HUD, RF-04, și
-  // pentru a detecta manual un conflict deja existent în date) — vezi
-  // §2.6 din brief.
+  // Simple public read, useful later for the RF-04 HUD and for manually
+  // detecting a conflict already present in data; see brief §2.6.
   function getActiveRunsForProfile(profileId) {
     const db = getDb();
     return db
@@ -97,34 +93,32 @@ function createRunsStore(options = {}) {
       .all(profileId);
   }
 
-  // Upsert idempotent, chemat de un viitor adaptor (RF-03) la fiecare poll.
+  // Idempotent upsert called by a future RF-03 adapter on every poll.
   //
-  // DE CE NU ARE CAS (`expectedRevision`), spre deosebire de
-  // `updateProfile`/`associateProfile`: acolo revizia protejează o schimbare
-  // INTENȚIONATĂ de utilizator/planner împotriva unei scrieri concurente pe
-  // baza unei stări vechi citite anterior. `observeRun` nu e o intenție de
-  // schimbare — e un flux automat de ingestie ("am văzut din nou sesiunea
-  // asta, cam așa arată acum"), fără citire prealabilă de care apelantul să
-  // țină cont. Un adaptor care sondează la fiecare câteva secunde n-ar putea
-  // ține evidența unei revizii doar ca să raporteze ce a văzut deja — asta
-  // ar transforma un simplu "heartbeat" într-un protocol cu stare pe partea
-  // adaptorului, fără niciun beneficiu (nu există altă sursă care ar putea
-  // "intra peste" o observare cu o schimbare concurentă a acelorași câmpuri:
-  // doar adaptorul respectiv scrie lifecycle-ul de observare pentru acel
-  // native_id anume). Revizia tot crește la fiecare observare (e o scriere
-  // reală), dar fără verificare optimistă la intrare.
+  // WHY THERE IS NO CAS (`expectedRevision`), unlike `updateProfile`/
+  // `associateProfile`: there, revision protects an INTENTIONAL user/planner
+  // change against a concurrent write based on previously read stale state.
+  // `observeRun` is not change intent; it is an automatic ingestion stream
+  // ("I observed this run again and this is roughly its current state") with
+  // no prior read the caller must honor. An adapter polling every few seconds
+  // cannot track a revision merely to report what it already observed. That
+  // would turn a simple heartbeat into a stateful adapter protocol without
+  // benefit: no other source can overwrite an observation with concurrent
+  // changes to these fields, because only this adapter writes observed
+  // lifecycle for that native_id. Revision still increases on every real
+  // observation write, but no optimistic check occurs on input.
   function observeRun({ sourceHarness, nativeId, project, lifecycle } = {}) {
     if (typeof sourceHarness !== 'string' || !sourceHarness.trim()) {
-      throw fail('VALIDATION', 'sourceHarness este obligatoriu și nu poate fi gol');
+      throw fail('VALIDATION', 'sourceHarness is required and cannot be empty');
     }
     if (typeof nativeId !== 'string' || !nativeId.trim()) {
-      throw fail('VALIDATION', 'nativeId este obligatoriu și nu poate fi gol');
+      throw fail('VALIDATION', 'nativeId is required and cannot be empty');
     }
     if (project !== undefined && project !== null && typeof project !== 'string') {
-      throw fail('VALIDATION', 'project trebuie să fie un șir sau lipsă/null');
+      throw fail('VALIDATION', 'project must be a string, omitted, or null');
     }
     if (lifecycle !== undefined && !LIFECYCLES.has(lifecycle)) {
-      throw fail('VALIDATION', 'lifecycle invalid: ' + lifecycle);
+      throw fail('VALIDATION', 'invalid lifecycle: ' + lifecycle);
     }
 
     const db = getDb();
@@ -153,10 +147,10 @@ function createRunsStore(options = {}) {
       return getRun(id);
     }
 
-    // UPDATE — NU atinge profile_id: o observare nouă nu poate desface o
-    // asociere existentă. `lifecycle`/`project` se actualizează doar dacă
-    // vin în apel, altfel păstrează valoarea existentă (nu suprascrie cu
-    // 'unknown'/null din greșeală).
+    // UPDATE does NOT touch profile_id: a new observation cannot undo an
+    // existing association. `lifecycle`/`project` update only when supplied;
+    // otherwise they retain existing values rather than accidentally being
+    // overwritten with 'unknown'/null.
     const newLifecycle = lifecycle === undefined ? existing.lifecycle : lifecycle;
     const newProject = project === undefined ? existing.project : project;
 
@@ -168,19 +162,19 @@ function createRunsStore(options = {}) {
     return getRun(id);
   }
 
-  // associateProfile — regula I24 ("o execuție activă per specialist
-  // global"): asocierea manuală la un profil deja ocupat de ALT run activ
-  // se refuză cu 409/CONFLICT, nu se forțează. Nu există parametru de
-  // "forțează oricum" în acest lot.
+  // associateProfile — I24 rule ("one active run per specialist globally"):
+  // manual association with a profile already occupied by ANOTHER active run
+  // is rejected with 409/CONFLICT rather than forced. This batch provides no
+  // "force anyway" parameter.
   function associateProfile(runId, { profileId, expectedRevision } = {}) {
     if (typeof runId !== 'string' || !runId) {
-      throw fail('VALIDATION', 'runId este obligatoriu');
+      throw fail('VALIDATION', 'runId is required');
     }
     if (typeof profileId !== 'string' || !profileId) {
-      throw fail('VALIDATION', 'profileId este obligatoriu');
+      throw fail('VALIDATION', 'profileId is required');
     }
     if (typeof expectedRevision !== 'number' || !Number.isInteger(expectedRevision) || expectedRevision < 1) {
-      throw fail('VALIDATION', 'expectedRevision este obligatoriu și trebuie să fie un întreg >= 1');
+      throw fail('VALIDATION', 'expectedRevision is required and must be an integer >= 1');
     }
 
     const db = getDb();
@@ -189,13 +183,13 @@ function createRunsStore(options = {}) {
     const current = db.prepare('SELECT * FROM runs WHERE id = ?').get(runId);
     if (!current) {
       db.exec('ROLLBACK');
-      throw fail('NOT_FOUND', 'run-ul ' + runId + ' nu există');
+      throw fail('NOT_FOUND', 'run ' + runId + ' does not exist');
     }
     if (current.revision !== expectedRevision) {
       db.exec('ROLLBACK');
       throw fail(
         'CONFLICT',
-        'revizia așteptată (' + expectedRevision + ') nu se potrivește cu revizia curentă (' + current.revision + ')',
+        'expected revision (' + expectedRevision + ') does not match current revision (' + current.revision + ')',
         { current }
       );
     }
@@ -203,14 +197,13 @@ function createRunsStore(options = {}) {
     const profile = db.prepare('SELECT id FROM agent_profiles WHERE id = ?').get(profileId);
     if (!profile) {
       db.exec('ROLLBACK');
-      throw fail('NOT_FOUND', 'profilul ' + profileId + ' nu există');
+      throw fail('NOT_FOUND', 'profile ' + profileId + ' does not exist');
     }
 
-    // I24: dacă profileId are deja alt run activ (queued/running/paused),
-    // altul decât runId însuși, asocierea se refuză — nu forțăm. Returnăm
-    // TOATE run-urile active care blochează, nu doar primul găsit (I24:
-    // "observatorul nu ascunde execuții care încalcă regula: păstrează
-    // dovezile și semnalează conflictul").
+    // I24: when profileId already has another active run (queued/running/paused)
+    // other than runId itself, reject rather than force the association. Return
+    // ALL blocking active runs, not only the first (I24: the observer does not
+    // hide runs that violate the rule; it preserves evidence and reports conflict).
     const activeRuns = db
       .prepare(
         "SELECT * FROM runs WHERE profile_id = ? AND lifecycle IN ('queued', 'running', 'paused') AND id != ? " +
@@ -221,23 +214,23 @@ function createRunsStore(options = {}) {
       db.exec('ROLLBACK');
       throw fail(
         'CONFLICT',
-        'profilul ' + profileId + ' are deja ' + activeRuns.length + ' execuție/execuții activă/active (I24)',
+        'profile ' + profileId + ' already has ' + activeRuns.length + ' active run(s) (I24)',
         { activeRuns }
       );
     }
 
     const ts = now();
-    // Re-asociere (runId era deja legat de alt profil): permisă atâta timp
-    // cât profilul NOU nu are deja alt run activ (verificat mai sus) —
-    // spec.md nu interzice realocarea, doar refuză asocierea la un profil
-    // OCUPAT. Decizia e documentată în raport.
+    // Reassociation when runId was linked to another profile is allowed while
+    // the NEW profile has no other active run, checked above. spec.md does not
+    // prohibit reassignment; it only rejects association with an OCCUPIED
+    // profile. The decision is documented in the report.
     const result = db
       .prepare('UPDATE runs SET profile_id = ?, revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?')
       .run(profileId, ts, runId, expectedRevision);
 
     if (result.changes !== 1) {
       db.exec('ROLLBACK');
-      throw new Error('associateProfile: UPDATE nu a afectat exact un rând (stare neașteptată)');
+      throw new Error('associateProfile: UPDATE did not affect exactly one row (unexpected state)');
     }
 
     db.exec('COMMIT');
@@ -246,10 +239,10 @@ function createRunsStore(options = {}) {
 
   function dissociateProfile(runId, { expectedRevision } = {}) {
     if (typeof runId !== 'string' || !runId) {
-      throw fail('VALIDATION', 'runId este obligatoriu');
+      throw fail('VALIDATION', 'runId is required');
     }
     if (typeof expectedRevision !== 'number' || !Number.isInteger(expectedRevision) || expectedRevision < 1) {
-      throw fail('VALIDATION', 'expectedRevision este obligatoriu și trebuie să fie un întreg >= 1');
+      throw fail('VALIDATION', 'expectedRevision is required and must be an integer >= 1');
     }
 
     const db = getDb();
@@ -258,27 +251,27 @@ function createRunsStore(options = {}) {
     const current = db.prepare('SELECT * FROM runs WHERE id = ?').get(runId);
     if (!current) {
       db.exec('ROLLBACK');
-      throw fail('NOT_FOUND', 'run-ul ' + runId + ' nu există');
+      throw fail('NOT_FOUND', 'run ' + runId + ' does not exist');
     }
     if (current.revision !== expectedRevision) {
       db.exec('ROLLBACK');
       throw fail(
         'CONFLICT',
-        'revizia așteptată (' + expectedRevision + ') nu se potrivește cu revizia curentă (' + current.revision + ')',
+        'expected revision (' + expectedRevision + ') does not match current revision (' + current.revision + ')',
         { current }
       );
     }
 
     const ts = now();
-    // Eliberarea unui profil nu poate crea conflict, doar rezolva unul — nu
-    // se verifică nimic legat de I24 aici.
+    // Releasing a profile cannot create a conflict, only resolve one, so no
+    // I24 check is needed here.
     const result = db
       .prepare('UPDATE runs SET profile_id = NULL, revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?')
       .run(ts, runId, expectedRevision);
 
     if (result.changes !== 1) {
       db.exec('ROLLBACK');
-      throw new Error('dissociateProfile: UPDATE nu a afectat exact un rând (stare neașteptată)');
+      throw new Error('dissociateProfile: UPDATE did not affect exactly one row (unexpected state)');
     }
 
     db.exec('COMMIT');

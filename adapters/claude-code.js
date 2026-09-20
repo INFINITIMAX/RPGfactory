@@ -1,32 +1,30 @@
-// adapters/claude-code.js — RF-03a: primul adaptor real, sondare Claude Code.
+// adapters/claude-code.js — RF-03a: first real adapter, polling Claude Code.
 //
-// Funcție PURĂ, testabilă: face UN ciclu de sondare, nu conține niciun timer
-// intern (timer-ul e wiring, în server.js — lecția RF-02: logica separată de
-// wiring-ul HTTP/timer se testează mult mai simplu).
+// PURE and testable: performs ONE polling cycle and contains no internal timer.
+// Timer wiring belongs in server.js; RF-02 showed that separating logic from
+// HTTP/timer wiring makes testing much simpler.
 //
-// Citește exact același mecanism ca `readAgents()` din server.js: listează
-// `*.json` din `sessionsDir`, parsează fiecare, ia `sessionId`/`cwd`/`pid`.
-// Nu-l reinventăm.
+// Reads the exact same mechanism as `readAgents()` in server.js: lists `*.json`
+// in `sessionsDir`, parses each file, and reads `sessionId`/`cwd`/`pid`.
+// Do not reinvent it.
 //
-// Diferență deliberată față de `readAgents()`: `readAgents()` filtrează
-// sesiunile moarte (`.filter(a => a && a.alive)`) — nu le mai raportează
-// deloc. Acest adaptor NU filtrează: observă TOATE sesiunile găsite, vii sau
-// moarte, ca lifecycle-ul din `runs` să rămână onest (spec.md §4) — o
-// sesiune oprită trebuie să ajungă 'stopped', nu să dispară tăcut din
-// citiri. Limitare acceptată (documentată, nu reparată în acest lot): dacă
-// fișierul de sesiune dispare complet de pe disc între două sondări
-// (procesul moare ȘI fișierul se șterge înainte să apucăm să-l vedem mort),
-// rândul din `runs` rămâne la ultima stare observată.
+// Deliberate difference from `readAgents()`: that function filters dead runs
+// (`.filter(a => a && a.alive)`) and stops reporting them. This adapter does
+// NOT filter: it observes ALL discovered runs, alive or dead, so lifecycle in
+// `runs` remains truthful (spec.md §4). A stopped run must become 'stopped',
+// not silently disappear. Accepted limitation (documented, not fixed here):
+// if a run file disappears entirely between polls because the process dies AND
+// the file is removed before its dead state is observed, the `runs` row retains
+// its last observed state.
 
 const fs = require('fs');
 const path = require('path');
 
 // pollClaudeCodeSessions({ sessionsDir, isAlive, runsStore, now }) -> { observed, errors }
 //
-// `now` nu e folosit direct aici (runsStore/observeRun își are propriul
-// `now` injectat la construcție) — primit din simetrie cu restul opțiunilor
-// injectabile ale proiectului, în caz că un apel viitor are nevoie de el
-// pentru diagnosticare; neutilizat momentan.
+// `now` is not used directly here because runsStore/observeRun has its own
+// construction-injected clock. It is accepted for symmetry with the project's
+// other injectable options in case future diagnostics need it; currently unused.
 function pollClaudeCodeSessions({ sessionsDir, isAlive, runsStore } = {}) {
   let files = [];
   try {

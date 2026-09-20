@@ -1,16 +1,14 @@
-// state.js — persistență pentru arhivarea agenților (T-06), reproducând
-// exact mecanica de scriere sigură din bot-crossing (server/api.mjs):
-// scriere atomică (tmp + rename), coadă de scriere serializată, concurență
-// optimistă pe `updatedAt`. Schema e simplificată la ce ne trebuie efectiv:
-// `archived` + `archivedAt` + `plots` (fără `seen`/`hiddenProjects`/etc.,
-// care nu există la noi). `plots` e layout-ul de zone calculat de
-// public/zones.js (T-08), salvat ca să nu se recalculeze de la zero la
-// fiecare pornire de server/reîncărcare de pagină (wiring-ul vine la T-10).
+// state.js — agent archive persistence (T-06), reproducing bot-crossing's
+// safe-write mechanics (server/api.mjs): atomic write (temporary file +
+// rename), serialized write queue, and optimistic concurrency on `updatedAt`.
+// The schema is reduced to what this application uses: `archived` +
+// `archivedAt` + `plots`, without `seen`/`hiddenProjects`/etc. `plots` is the
+// zone layout calculated by public/zones.js (T-08), persisted so it need not be
+// rebuilt from scratch on every server start/page reload (wiring arrives in T-10).
 //
-// RF-01: nicio cale de fișier nu mai e constantă de modul — `dataDir` (și
-// fișierul de stare derivat din el) se calculează per store, injectat prin
-// `createStateStore(options)`. Asta permite testelor să folosească directoare
-// temporare, în loc să atingă `data/state.json` real.
+// RF-01: no file path is a module constant. `dataDir`, and the derived state
+// file, are calculated per store and injected through `createStateStore(options)`.
+// Tests can therefore use temporary directories rather than real data/state.json.
 
 const fs = require('fs');
 const path = require('path');
@@ -28,9 +26,9 @@ function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// Caută `__proto__`/`constructor`/`prototype` ca nume de chei la orice
-// adâncime din `plots` — un obiect imbricat arbitrar poate ascunde o
-// poluare de prototip la fel de bine ca unul de nivel 1.
+// Searches for `__proto__`/`constructor`/`prototype` as key names at any depth
+// in `plots`; an arbitrarily nested object can hide prototype pollution just
+// as effectively as a first-level object.
 function hasReservedKey(value) {
   if (!isPlainObject(value)) return false;
   for (const key of Object.keys(value)) {
@@ -40,8 +38,8 @@ function hasReservedKey(value) {
   return false;
 }
 
-// Adâncimea unui obiect simplu: un obiect fără chei are adâncime 1; fiecare
-// nivel de imbricare mai adaugă unul.
+// Depth of a plain object: an object without keys has depth 1, and each nested
+// level adds one.
 function objectDepth(value) {
   if (!isPlainObject(value)) return 0;
   const keys = Object.keys(value);
@@ -54,9 +52,9 @@ function objectDepth(value) {
   return max + 1;
 }
 
-// Validează patch-ul primit la PUT (D6). Verifică TOT înainte de a atinge
-// discul — la orice eșec, starea de pe disc rămâne neatinsă. Câmpurile
-// necunoscute sunt respinse explicit, nu ignorate silențios.
+// Validates a PUT patch (D6). Checks EVERYTHING before touching disk so any
+// failure leaves on-disk state unchanged. Unknown fields are explicitly
+// rejected rather than silently ignored.
 function validateStatePatch(data) {
   if (!isPlainObject(data)) return { ok: false, message: 'body must be a JSON object' };
 
@@ -139,10 +137,9 @@ function createStateStore(options = {}) {
     }
   }
 
-  // coadă de scriere serializată, per store (nu mai e globală — asta ar fi
-  // amestecat scrierile a două store-uri distincte, ex. teste în paralel):
-  // două PUT-uri care ajung aproape simultan nu trebuie să calce unul peste
-  // celălalt între citirea stării curente și scrierea ei.
+  // Serialized write queue per store. A global queue would mix writes from
+  // distinct stores, such as parallel tests. Two nearly simultaneous PUTs must
+  // not overwrite each other between reading current state and writing it.
   let writeQueue = Promise.resolve();
   let tmpSeq = 0;
   function serialise(fn) {
@@ -150,10 +147,10 @@ function createStateStore(options = {}) {
     return writeQueue;
   }
 
-  // Scrie efectiv `patch`-ul pe disc, calculând o revizie nouă monotonă
-  // (D7 — un contor, nu `Date.now()`, ca două scrieri în aceeași milisecundă
-  // să rămână distinctibile). Presupune că e apelată dintr-o secțiune deja
-  // serializată (fie prin `writeState`, fie din `handlePutState`).
+  // Writes `patch` to disk while calculating a new monotonic revision (D7).
+  // This is a counter rather than `Date.now()` so two writes in one millisecond
+  // remain distinguishable. Must be called from an already serialized section,
+  // either through `writeState` or from `handlePutState`.
   function persist(patch) {
     const current = readState();
     const nextRev = Math.max(Number(current.updatedAt) || 0, 0) + 1;
@@ -163,7 +160,7 @@ function createStateStore(options = {}) {
       archivedAt: (patch && patch.archivedAt) || {},
       plots: (patch && patch.plots) || {},
       updatedAt: nextRev,
-      savedAt: new Date(now()).toISOString(), // doar pentru afișare umană — nu se folosește la CAS
+      savedAt: new Date(now()).toISOString(), // human display only, never used for CAS
     };
 
     fs.mkdirSync(dataDir, { recursive: true });
@@ -172,12 +169,12 @@ function createStateStore(options = {}) {
     try {
       fs.renameSync(tmp, stateFile);
     } catch (e) {
-      // rename eșuat (disc plin, permisiuni) — încercăm să curățăm tmp-ul,
-      // dar nu lăsăm o eroare de curățenie să mascheze eroarea originală.
+      // If rename fails (full disk, permissions), try to clean up the temporary
+      // file without allowing a cleanup error to mask the original error.
       try {
         fs.unlinkSync(tmp);
       } catch (cleanupErr) {
-        // ignorăm — eroarea de I/O originală e cea care contează (D11)
+        // Ignore it; the original I/O error is the one that matters (D11).
       }
       throw e;
     }
@@ -188,19 +185,19 @@ function createStateStore(options = {}) {
     return serialise(() => persist(patch));
   }
 
-  // `res.writeHead`/`res.end` pot arunca (headere deja trimise, socket
-  // închis de client între timp) — și asta se poate întâmpla din interiorul
-  // funcției serializate în `writeQueue`. Fără protecție, excepția iese din
-  // funcție, `writeQueue` devine o promisiune respinsă, iar `handlePutState`
-  // nu prinde valoarea întoarsă de `serialise` -> unhandledRejection care
-  // poate opri procesul (RF-01b). Prindem aici, logăm (nu înghițim în
-  // tăcere), și lăsăm coada utilizabilă pentru scrierile următoare.
+  // `res.writeHead`/`res.end` can throw if headers were sent or the client
+  // closed the socket, including from inside the function serialized in
+  // `writeQueue`. Without protection, the exception escapes, `writeQueue`
+  // becomes a rejected promise, and `handlePutState` does not catch the value
+  // returned by `serialise`, causing an unhandledRejection that may stop the
+  // process (RF-01b). Catch and log here rather than silently swallowing it,
+  // while keeping the queue usable for later writes.
   function respond(res, status, body) {
     try {
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(body));
     } catch (e) {
-      console.error('state.js: răspunsul ' + status + ' nu a putut fi trimis (client deconectat?):', e);
+      console.error('state.js: response ' + status + ' could not be sent (client disconnected?):', e);
     }
   }
 
@@ -218,8 +215,8 @@ function createStateStore(options = {}) {
         return;
       }
 
-      // citirea stării curente (pentru CAS) și scrierea rămân în aceeași
-      // secțiune serializată — altfel altă cerere s-ar putea strecura între ele.
+      // Keep reading current state for CAS and writing in the same serialized
+      // section; otherwise another request could slip between them.
       serialise(() => {
         const current = readState();
         if (validation.baseUpdatedAt !== current.updatedAt) {
@@ -235,10 +232,10 @@ function createStateStore(options = {}) {
             plots: validation.plots,
           });
         } catch (e) {
-          // D11: o eroare de disc trebuie să producă un răspuns, nu un
-          // request abandonat. Prindem excepția aici (nu lăsăm promisiunea
-          // cozii să se rupă) ca scrierile următoare să rămână posibile.
-          respond(res, 500, { ok: false, error: 'eroare de scriere pe disc' });
+          // D11: a disk error must produce a response rather than an abandoned
+          // request. Catch it here without breaking the queue promise so later
+          // writes remain possible.
+          respond(res, 500, { ok: false, error: 'disk write error' });
           return;
         }
 

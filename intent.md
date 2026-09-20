@@ -3,8 +3,8 @@
 > **Precedență:** `instructiuni.md` are prioritate peste tot ce s-a muncit până acum în proiect. Dacă acest fișier îl contrazice, `instructiuni.md` câștigă. Vezi `AGENTS.md` § „Precedența documentelor”.
 
 
-Actualizat: 16-09-2026.
-Status: fundația RF-01–RF-05 și prototipul RF-UI-01 există. Lucian a aprobat pivotul **single-kingdom-first** și începerea RF-K01. RF-UI-01 rămâne prototip tehnic, nu direcția finală. Prima dependență este integrarea Pi reală; activarea globală a reporterului rămâne gate separat.
+Actualizat: 18-09-2026.
+Status: integrarea Pi live, regatul unic și fundația mission/proof RF-K01b3c sunt publicate. Lucian a aprobat continuarea cu lotul vizibil RF-K01d: misiuni, gold/proof și handoff-uri adevărate pe hartă. RF-UI-01 rămâne prototip tehnic, nu direcția finală; activarea globală a reporterului rămâne gate separat.
 
 ## Problema
 
@@ -58,6 +58,12 @@ Sursa completă: [docs/DECISIONS.md](docs/DECISIONS.md), I01–I46.
 - Consum propriu distinct de ramura coordonată; totaluri fără dublare.
 - Dosare/evaluări/agregate permanente; eșantioane detaliate 30 zile.
 - Țintă de validare inițială: 20 specialiști și 5 proiecte; nu plafon artificial.
+
+## Intent activ — RF-K01d
+
+Extindem suprafața existentă, nu o redesenăm din nou. Regatul și rail-ul trebuie să arate o misiune Pi reală prin ID opac, run-urile ei corelate cu Pawn-urile, tranzițiile temporale confirmate dintre run-uri și fiecare proof allowlisted ca obiect de aur inspectabil. Dacă root-ul de misiuni lipsește, dacă run-ul nu se corelează sau dacă ordinea nu dovedește o predare, UI spune indisponibil/neconfirmat și nu desenează o poveste inventată.
+
+Lotul este request-time, read-only și explicit opt-in. Nu deschide path/URL privat, nu scrie în baza reală, nu instalează reporter, nu pornește watcher și nu modifică serverul activ fără aprobare separată.
 
 ## Ce nu construim acum
 

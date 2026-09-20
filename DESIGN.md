@@ -1,71 +1,72 @@
-# RPG Factory — sistem vizual
+# RPG Factory — visual system
 
-Actualizat: 16-09-2026
+Updated: 19-09-2026
 
-## Direcție
+## Direction
 
-**Masă de comandă a breslei.** Lumea medievală este suprafața principală, nu fundalul unui dashboard. Registrul operațional este o unealtă compactă prinsă de marginea lumii. Referința de compoziție oferită de utilizator este `INspiratie/1.png`; nu este asset de livrare.
+**The Living Citadel, viewed from above.** The medieval world is the product, not the background of a dashboard. The composition reference supplied by the user is `INspiratie/1.png`; it is not a shipping asset. The city adopts the reference's density and compositional hierarchy while using a strictly top-down 2D plane, without an oblique camera or simulated perspective. The complete contract is in `docs/handoff/RF-K02-direction-contract.md`.
 
-## Compoziție
+## Composition
 
-- Desktop: bară de comandă 58 px, lume flexibilă în stânga, rail `clamp(320px, 26vw, 380px)` în dreapta.
-- Mobil: lumea are aproximativ `55dvh`, iar rail-ul curge dedesubt; nu există overflow orizontal.
-- Inspectorul înlocuiește conținutul rail-ului. Nu rezervă o coloană suplimentară.
-- Proiectul este un district hexagonal; profilul este un pawn; sesiunea este o stare observată, nu un personaj separat.
+- Desktop: a compact command bar and an edge-to-edge map occupying at least 80% of the first viewport.
+- The castle and square are the center of a continuous settlement: roads, water/shoreline, walls, towers, districts, and forest. Pawns occupy stations near buildings rather than an abstract orbit.
+- The mission ribbon and map controls are compact overlaid HUDs. The Operations Registry becomes an overlaid contextual drawer on the right and is closed by default; it does not permanently compress the map.
+- The kingdom is unique. Correlated runs are Pawns, confirmed handoffs follow golden routes, and every public proof is exactly one gold object in the vault.
+- The matrix, tree, and legacy profile/run registry remain secondary within the drawer, without a permanent dashboard.
 
-## Culoare și material
+## Color and material
 
-| Token | Rol |
+| Token | Role |
 |---|---|
-| `--base` `#0b1213` | fundalul chrome-ului |
-| `--panel` `#111b1c` | rail și suprafețe operaționale |
-| `--line` `#2a3a38` | separatoare |
-| `--ink` `#eef2ef` | text principal |
-| `--muted` `#9aa9a4` | text secundar |
-| `--gold` `#d5ac58` | accent medieval/control |
-| `--green` `#72c08a` | conexiune/stare sănătoasă |
+| `--ink` `#322417` | primary text on paper |
+| `--muted` `#705b41` | secondary text |
+| `--paper` `#eadbb8` | rail surface |
+| `--paper-deep` `#c6ab7c` | tiers and selections |
+| `--wood` `#563719` | chrome, frames, and dividers |
+| `--gold` `#d4a84b` | handoff, proof, and accent |
+| `--blue` `#4b86b8` | map controls |
 
-Terenul și clădirile folosesc sprite-uri Tiny Swords; chrome-ul rămâne mat, geometric și discret. Fără glassmorphism, gradient text sau „parchment UI” generalizat.
+Terrain, castle, Pawns, gold, and chrome use the Tiny Swords visual language: compact grass, paper, wood, and heraldry. No glassmorphism, gradient text, SaaS cards, or effects that invent activity.
 
-## Tipografie
+## Typography
 
-- UI și text: Candara/Trebuchet ca sans workhorse, 11–14 px în rail.
-- Titluri și etichete de proiect: Grenze variable, serif display medieval robust, self-hosted.
-- Monospace: numai pentru numere, procente și identificatori scurți.
-- Etichetele Canvas sunt contextuale: apar la hover, focus sau selecție; identitatea completă rămâne permanent în alternativa DOM.
+- UI and text: Candara/Trebuchet as the sans workhorse, 11–14 px in the rail.
+- Project titles and labels: self-hosted Grenze variable, a robust medieval display serif.
+- Monospace: only for numbers, percentages, and short identifiers.
+- Canvas labels are permanent for Pawns: allowlisted role, lifecycle, and `needs_attention`; the DOM alternative preserves full identity and keyboard selection.
 
-## Componente și stări
+## Components and states
 
-- **Connection indicator:** punct semantic păstrat în DOM + etichetă live.
-- **Map controls:** zoom minus/procent/plus/reset; pan cu pointer; drag-ul nu selectează pawn-ul.
-- **District:** umplere colorată semitransparentă, contur dublu, nume permanent, clădire ancorată.
-- **Pawn:** sprite 34 px scalat cu camera; ring de selecție; animație numai când API-ul confirmă `working`.
-- **Rail summary:** numai valori derivabile din profile/runs reale.
-- **Rows:** click + Enter/Space, focus vizibil, `aria-pressed` pentru selecție.
-- **Inspector actions:** lock per acțiune, `aria-busy`, control disabled și text de progres până în `finally`.
-- **Map states:** loading, ready, empty, stale/error, toate cu text live.
-- **Canvas alternative:** listă DOM screen-reader-only în repaus; devine overlay vizibil și scrollabil la `:focus-within`.
+- **Connection indicator:** semantic dot retained in the DOM plus a live label.
+- **Map controls:** zoom out/percentage/zoom in/reset; pointer pan; dragging does not select a Pawn.
+- **Castle/coordinator:** central hierarchy anchor, with a side label so it does not cover the vault or Pawns.
+- **Pawn:** 80 px Canvas bounding box, consistent hit target, selection ring; animation only when the public snapshot confirms `active === true`.
+- **Mission ribbon:** native selector; short opaque identifier and public status, without a private title/objective.
+- **Handoff route:** dotted golden edge only for temporally confirmed linked sequences; missing evidence remains “unconfirmed.”
+- **Proof vault:** one DOM button and one Canvas coin per allowlisted proof; there is no Open/resolver action or private target.
+- **Rows:** native controls, visible focus, and `aria-pressed` for selection.
+- **Map states:** loading, ready, empty, stale/unavailable, and disconnected, all with live text; disconnected preserves the last valid snapshot.
+- **Canvas alternative:** screen-reader-only DOM list at rest; becomes a visible, scrollable overlay on `:focus-within`.
 
 ## Motion
 
-- O singură familie de mișcare: animația pawn-ului care lucrează și feedback-ul direct al camerei.
-- `prefers-reduced-motion: reduce` oprește animația dependentă de timp.
-- Nu există entrance animations decorative sau pulsuri fără sens operațional.
+- One motion family: the working Pawn animation and direct camera feedback.
+- `prefers-reduced-motion: reduce` stops time-dependent animation.
+- No decorative entrance animations or pulses without operational meaning.
 
-## Responsive și accesibilitate
+## Local desktop and accessibility
 
-- Ținte validate: 1440×1000 și 390×844.
-- `scrollWidth` nu depășește viewport-ul.
-- Canvas are rol, nume și descriere; aceleași entități există în DOM.
-- Toate controalele principale sunt operabile cu tastatura și au focus vizibil.
-- Starea nu este transmisă numai prin culoare.
+- The product is desktop-only and local for Lucian's laptop; mobile is not a gate.
+- Canvas has a role, name, and description; the same entities exist in the DOM.
+- All primary controls support keyboard operation and have visible focus.
+- State is not conveyed by color alone.
 
-## Proveniență raster
+## Raster provenance
 
 - Tiny Swords — Free Pack, Pixel Frog: https://pixelfrog-assets.itch.io/tiny-swords
-- Licență: custom, uz comercial permis, redistribuirea fișierelor brute interzisă.
+- License: custom; commercial use permitted, redistribution of raw files prohibited.
 - Grenze Variable Font, Omnibus-Type / Google Fonts: https://github.com/google/fonts/tree/main/ofl/grenze
-- Licență font: SIL Open Font License 1.1; copia este în `public/fonts/OFL-Grenze.txt`.
-- Registru complet: `assets/README.md`.
-- Sprite-urile sunt locale în `public/sprites/`, intenționat excluse din GitHub.
-- `INspiratie/1.png` este referință furnizată de utilizator și nu este servită de aplicație.
+- Font license: SIL Open Font License 1.1; the copy is in `public/fonts/OFL-Grenze.txt`.
+- Complete registry: `assets/README.md`.
+- Sprites are local in `public/sprites/` and intentionally excluded from GitHub.
+- `INspiratie/1.png` is a user-supplied reference and is not served by the application.

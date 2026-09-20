@@ -3,7 +3,7 @@
 > **Precedență:** `instructiuni.md` are prioritate peste tot ce s-a muncit până acum în proiect. Dacă acest fișier îl contrazice, `instructiuni.md` câștigă. Vezi `AGENTS.md` § „Precedența documentelor”.
 
 
-Actualizat: **17-09-2026**.
+Actualizat: **19-09-2026**.
 
 ## 1. Stare curentă și următoarea acțiune
 
@@ -23,20 +23,26 @@ Direcția activă este **single-kingdom-first**: un singur regat funcțional, al
 
 ### Starea exactă
 
-- RF-K01a este acceptat, comis și publicat la `2d8049c`.
-- RF-K01b1, RF-K01b2a și RF-K01b2b sunt acceptate de Reviewer, dar sunt încă locale, necomise și nepublicate.
-- RF-K01b3a (ledger SQLite atomic) are implementarea și testele verzi: **13/13 țintit; 660 pass, 0 fail, 2 skip din 662 complet; syntax/diff-check PASS; server PID 40652 înainte/după**.
-- RF-K01b3a este formal deschis numai fiindcă Reviewer-ul final nu a pornit: `gpt-5.6-sol` a întors `The usage limit has been reached`. Lucian a spus că va schimba agentul/modelul pentru continuare.
-- Raportul/brief-ul de reluare este `docs/handoff/RF-K01b3a-r3-reviewer.md`; dovada publicabilă sanitizată este `docs/handoff/RF-K01b3a-validation-summary.md` (logul brut rămâne local); blocajul este consemnat în `docs/handoff/RF-K01b3a-r3-reviewer-attempt.md`.
+- RF-K01a, RF-K01b1, RF-K01b2a, RF-K01b2b și codul RF-K01b3a sunt comise și publicate în checkpoint-ul `61a6c8d`.
+- RF-K01b3a (ledger SQLite atomic) este **ÎNCHIS** 17-09-2026: **13/13 țintit; 660 pass, 0 fail, 2 skip din 662 complet; review ACCEPT / Merge OK**.
+- RF-K01b3b (coordonator explicit și recovery) este **ÎNCHIS** 17-09-2026: **7/7 țintit; 667 pass, 0 fail, 2 skip din 669 complet; syntax/diff-check PASS; server PID 40652 înainte/după**.
+- Reviewer-ul final b3b, fresh și read-only pe `gpt-5.6-terra` medium, a dat **ACCEPT / Merge OK**, fără findings P0/P1/P2. Raport integral: `docs/handoff/RF-K01b3b-reviewer-raport.md`.
+- B3b este local și necomis; checkpoint-ul public `61a6c8d` se oprește la codul b3a.
+- RF-K01c este **ACCEPTAT / Merge OK** 18-09-2026: endpoint/proiecție/UI desktop și binding Pi live opt-in; **18/18 țintit; 684 pass, 0 fail, 2 skip din 686; syntax/diff-check PASS**. Reviewer fresh: fără P0/P1; P2 a fost rezolvat prin test direct că ramura live nu creează ledger. Raport: `docs/handoff/RF-K01c-live-reviewer-raport.md`.
+- Proba Pi reală autorizată a fost read-only, pe server și DB temporare: `ready`, 3 noduri focale, 190 alte observații, 0 active deoarece snapshotul era stale/terminal; fără căi sau ID-uri native în răspuns.
+- În timpul primei probe Playwright RF-K01d, vechiul listener 5311/PID 9908 s-a oprit dintr-o cauză nedemonstrată. Lucian a autorizat separat restartul: aplicația rulează persistent acum pe PID 48192, pagina HTTP 200, kingdom `ready/fresh`, 2 noduri. Configurația `.env` rămâne locală și exclusă din Git.
+- Commit publicabil creat și publicat: `48c3b6f` (`Add Pi ingestion coordinator and live kingdom`), exact 15 fișiere de cod/config exemplu/teste; `origin/master` coincide cu HEAD. Documentele locale și artefactele private au fost excluse.
+- RF-K01b3c este **PUBLICAT** 18-09-2026: reader + persistență pentru misiuni allowlisted și proof opac, migrarea `006`; **24 pass, 0 fail, 1 skip țintit; 695 pass, 0 fail, 3 skip din 698 complet; review final ACCEPT / Merge OK**. Commit `05801ec` pe `origin/master`; HEAD și remote coincid, ahead/behind 0/0. Raport: `docs/handoff/RF-K01b3c-r2-reviewer-raport.md`.
+- RF-K01d este **ACCEPTAT / Merge OK / LOCAL NECOMIS** 18-09-2026: mission board, 3 tipuri de legături dovedite în fixture, exact un gold per proof, selecție sincronizată și UI desktop finisat; **33/33 țintit; 717 pass, 0 fail, 3 skip din 720 complet**. Captură: `docs/handoff/RF-K01d-desktop-final.png`; review: `docs/handoff/RF-K01d-reviewer-raport.md`. Root-ul mission absolut nu este configurat.
+- RF-K02 este **ÎNCHIS TEHNIC / ACCEPT / Merge OK / LOCAL NECOMIS** 19-09-2026: oraș medieval strict 2D top-down, hartă edge-to-edge și registru modal contextual. Cele trei P1 inițiale (cadre/proporții sprite, overflow Pawn și izolare focus) plus deplasarea `main.scrollLeft` sunt închise. **71/71 țintit; 721 pass, 0 fail, 3 skip din 724 complet**; browser desktop și mobil fără overflow, erori sau warnings. Capturi: `RF-K02-desktop-final.png`, `RF-K02-mobile-final.png`; review: `RF-K02-final-reviewer-raport.md`.
+- RF-L10N-01 este **ÎNCHIS TEHNIC / ACCEPT / Merge OK** 20-09-2026: UI curent și legacy, runtime/API, codul activ și documentația publică sunt English-only. **73/73 țintit; 723 pass, 0 fail, 3 skip din 726 complet**; ambele suprafețe browser au consolă 0/0. Review final fără findings.
+- Serverul real rulează pe 5311, PID 49348, HTTP 200, după restartul autorizat pentru încărcarea backend-ului tradus. Configurarea Pi live rămâne pusă pe pauză până după publicare.
 
 ### Următoarea acțiune
 
-1. Rulează un **review read-only independent** pentru RF-K01b3a asupra stării curente; nu mai rescrie implementarea/testele dacă nu există finding concret.
-2. Transcrie verdictul integral în `docs/handoff/RF-K01b3a-r3-reviewer-raport.md` și actualizează `GATES.md`, `TASKS.md`, `JURNAL.md`.
-3. Dacă verdictul este ACCEPT, implementează **RF-K01b3b minimal**: coordonator explicit b1+b2b+ledger/recovery, fără polling global.
-4. După b3b, prioritatea devine imediat vizuală: leagă ierarhia/stările Pi reale la kingdom. Nu lăsa b3c/b4 să blocheze primul kingdom funcțional; proof-ul complet și reporter-ul opt-in pot urma după vertical slice-ul vizibil.
+**Acțiunea curentă autorizată:** publică pe GitHub toate fișierele sigure și publicabile pentru RF-K01d + RF-K02 + RF-L10N-01, prin manifest explicit. Exclude `.env`, date/sesiuni reale, loguri, inspirația privată, paths/ID-uri private și asset-urile Tiny Swords restricționate.
 
-Nu instala/activa reportere globale, nu citi artefacte Pi reale fără configurație/aprobare explicită, nu migra baza reală, nu opri serverul și nu face commit/push/deploy fără gate separat.
+După publicare, oprește-te. Configurarea live Pi/root mission rămâne separată și nu se reia automat. Nu instala/activa reportere globale și nu migra baza reală.
 
 ## 2. Ce construim acum
 
@@ -69,11 +75,11 @@ Există efectiv:
 - integrare Claude Code existentă;
 - hartă Canvas 2D și prototip HUD;
 - RF-K01a: contract status Pi pur și acceptat;
-- local, nepublicat: b1 discovery/status reader, b2a event contract, b2b JSONL reader, b3a migrarea `005`, `pi-ingestion.js` și testele aferente.
+- checkpoint-ul public `61a6c8d`: b1 discovery/status reader, b2a event contract, b2b JSONL reader, b3a migrarea `005`, `pi-ingestion.js` și testele aferente.
 
-Dovada curentă a suitei complete este **660 pass, 0 fail, 2 skip din 662** pe 17-09-2026. Testele RF-K01b folosesc numai date sintetice/DB temporare; serverul de pe portul 5311 a rămas PID 40652.
+Checkpoint-ul public `48c3b6f` include b3b și RF-K01c. Checkpoint-ul public `05801ec` adaugă RF-K01b3c: `pi-missions.js`, migrarea `006` și testele sintetice. Local și necomis există RF-K01d: `pi-mission-board.js`, endpointul `/api/pi/mission-board`, mission rail, handoff-uri Canvas și seif gold/proof. Peste el, RF-K02 înlocuiește suprafața principală cu orașul medieval top-down și registrul contextual, păstrând aceleași contracte de date.
 
-Nu există încă: coordonatorul b3b activ, citire Pi reală activată, binding-ul kingdom la Pi, mining/proof vizual complet sau reporter global.
+Dovada curentă este **721 pass, 0 fail, 3 skip din 724** pe 19-09-2026, plus validare browser desktop/mobil și review final ACCEPT. Există gold/proof și handoff-uri vizibile pentru snapshoturi mission configurate. Nu există reporter global, resolver/Open pentru targeturi private sau root mission real configurat automat.
 
 ## 4. Descoperiri tehnice și propuneri
 

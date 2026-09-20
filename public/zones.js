@@ -1,26 +1,26 @@
-// zones.js — alocarea zonelor per proiect pe o grilă pătrată infinită,
-// portată din bot-crossing (src/world/plots.js), adaptată de la coordonate
-// hexagonale axiale (6 vecini) la o grilă pătrată (4 vecini, N/S/E/V) și de
-// la inele hexagonale la inele romboidale (distanță Manhattan). Nicio
-// celulă de tip "navă" — conectivitatea se verifică direct pe celulele
-// ocupate. Script clasic, ca merge-state.js — fără module ES, fără
-// module.exports. Randarea (T-10) și persistența (T-09) vin separat.
+// zones.js — per-project zone allocation on an infinite square grid, ported
+// from bot-crossing (src/world/plots.js). Adapted from axial hex coordinates
+// (6 neighbors) to a square grid (4 neighbors, N/S/E/W) and from hex rings to
+// diamond-shaped rings (Manhattan distance). There is no "ship" cell;
+// connectivity is checked directly across occupied cells. This is a classic
+// script like merge-state.js, with no ES modules or module.exports. Rendering
+// (T-10) and persistence (T-09) are handled separately.
 
-const SLOTS_PER_CELL = 7; // câți agenți încap vizual într-o celulă
-const MAX_CELLS = 9; // plafon de celule per proiect
+const SLOTS_PER_CELL = 7; // number of agents that visually fit in one cell
+const MAX_CELLS = 9; // maximum cells per project
 
 const key = (x, y) => `${x},${y}`;
 const ORIGIN = { x: 0, y: 0 };
-const RESERVED_CELL = { x: 0, y: 0 }; // turnul/spawn point-ul (T-15) stă exact aici — niciun proiect nu poate primi această celulă
-const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]]; // 4 direcții, în loc de cele 6 hexagonale
+const RESERVED_CELL = { x: 0, y: 0 }; // the tower/spawn point (T-15) is here; no project may receive this cell
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]]; // 4 directions instead of the 6 hex directions
 
 function manhattanDistance(a, b) {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
-// Echivalentul lui hexRing(radius) — toate celulele la distanță Manhattan
-// exactă `radius` de origine (un romb, nu un cerc hexagonal, dar același rol:
-// inelul spiralei de sămânță).
+// Equivalent to hexRing(radius): all cells at exactly `radius` Manhattan
+// distance from the origin (a diamond rather than a hex circle, but serving
+// the same purpose as the seed spiral ring).
 function ring(radius) {
   if (radius === 0) return [{ x: 0, y: 0 }];
   const out = [];
@@ -35,9 +35,8 @@ function ring(radius) {
 const cellsNeeded = (agentCount) =>
   Math.max(1, Math.min(MAX_CELLS, Math.ceil(agentCount / SLOTS_PER_CELL)));
 
-// growBlob — crește un blob de celule pornind de la cells[0] (rădăcina),
-// alegând de fiecare dată vecinul liber cel mai bun: cel mai apropiat de
-// rădăcină, iar la egalitate cel mai apropiat de origine.
+// growBlob — grows a cell blob from cells[0] (the root), choosing the best
+// free neighbor each time: closest to the root, then closest to the origin.
 function growBlob(cells, want, free) {
   const root = cells[0];
   while (cells.length < want) {
@@ -51,16 +50,16 @@ function growBlob(cells, want, free) {
         if (score < bestScore) { bestScore = score; best = n; }
       }
     }
-    if (!best) break; // complet încercuit
+    if (!best) break; // completely surrounded
     free.delete(key(best.x, best.y));
     cells.push(best);
   }
 }
 
-// isConnected — flood-fill pe 4 direcții peste toate celulele ocupate din
-// toate proiectele, cu celula rezervată a turnului tratată ca "stepping
-// stone" trecător (nu un membru), ca să nu rupă artificial conectivitatea
-// coloniilor care o înconjoară din ambele părți.
+// isConnected — four-direction flood fill across all occupied cells in all
+// projects. The reserved tower cell is treated as a traversable stepping stone
+// (not a member) so it does not artificially disconnect colonies surrounding
+// it on both sides.
 function isConnected(out) {
   const cells = new Map();
   for (const [, list] of out) for (const c of list) cells.set(key(c.x, c.y), c);
@@ -86,9 +85,9 @@ function isConnected(out) {
   return seen.size === cells.size;
 }
 
-// layOut — plasează fiecare proiect: cele cu layout anterior își păstrează
-// rădăcina (dacă mai e liberă) și cresc/se tund după nevoia curentă; cele
-// noi (sau fără rădăcină liberă) iau prima celulă liberă din pool.
+// layOut — places each project: projects with a previous layout retain their
+// root (when still free) and grow/shrink for current needs; new projects (or
+// projects without a free root) take the first free cell from the pool.
 function layOut(projects, previous) {
   const wanted = projects.map((p) => ({ id: p.id, want: cellsNeeded(p.size) }));
   const total = wanted.reduce((sum, p) => sum + p.want, 0);
@@ -136,8 +135,8 @@ function layOut(projects, previous) {
     }
   }
 
-  // Zonele păstrate cresc primele, ca să nu le fure un proiect nou celula
-  // în care voiau să se extindă.
+  // Retained zones grow first so a new project cannot take the cell into
+  // which they intended to expand.
   for (const { id, want } of kept) {
     growBlob(out.get(id), want, free);
   }
@@ -159,5 +158,5 @@ function layOut(projects, previous) {
 
 function allocateCells(projects, previous) {
   const laid = layOut(projects, previous);
-  return isConnected(laid) ? laid : layOut(projects, new Map()); // fallback: relayout complet de la zero
+  return isConnected(laid) ? laid : layOut(projects, new Map()); // fallback: complete layout from scratch
 }

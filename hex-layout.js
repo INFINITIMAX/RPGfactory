@@ -1,23 +1,21 @@
-// hex-layout.js — algoritmul de așezare a proiectelor pe o grilă hexagonală,
-// cu memorie între apeluri. Portat din bot-crossing (src/world/plots.js,
-// funcțiile allocateCells/layOut/growBlob/isConnected/hexRing/cellsNeeded/
-// hexDistance/key), adaptat: coordonate axiale flat-top ca în sursă, dar
-// FĂRĂ nicio celulă rezervată de "navă" (SHIP_CELL) — RPG Factory nu are
-// un asemenea obiect fix în acest lot. Funcție pură, fără efecte
-// secundare la require: nu citește fișiere, nu deschide baza de date.
-// Randarea (Canvas 2D) și wiring-ul cu baza de date vin în RF-05b — aici
-// nu există decât logica de alocare a celulelor.
+// hex-layout.js — project placement on a hexagonal grid with memory between
+// calls. Ported from bot-crossing (src/world/plots.js: allocateCells, layOut,
+// growBlob, isConnected, hexRing, cellsNeeded, hexDistance, and key), adapted
+// to use the source's flat-top axial coordinates but WITHOUT any reserved
+// "ship" cell (SHIP_CELL). RPG Factory has no such fixed object in this batch.
+// This is a pure function with no require-time side effects: it reads no files
+// and opens no database. Canvas 2D rendering and database wiring belong to
+// RF-05b; this file contains only cell-allocation logic.
 
-// Câte "sloturi" (specialiști) încap vizual într-o celulă, și plafonul de
-// celule pe care îl poate ocupa un singur proiect. Aceleași valori ca
-// sursa bot-crossing — planner-ul poate ajusta după numărul real de
-// agenți per proiect din RPG Factory.
+// Number of specialist slots that visually fit in one cell and maximum cells
+// one project may occupy. These match bot-crossing; the planner may adjust
+// them for the actual RPG Factory agent count per project.
 const SLOTS_PER_CELL = 7;
 const MAX_CELLS = 9;
 
 const ORIGIN = { q: 0, r: 0 };
 
-// Cele 6 direcții axiale flat-top, ca în sursă.
+// Six flat-top axial directions, matching the source.
 const HEX_DIRS = [
   [1, 0],
   [1, -1],
@@ -29,8 +27,8 @@ const HEX_DIRS = [
 
 const key = (q, r) => `${q},${r}`;
 
-// Toate celulele aflate la distanță hexagonală exactă `radius` de origine
-// — inelul din care se ia sămânța unui proiect nou, în ordine de spirală.
+// All cells exactly `radius` hex distance from the origin: the ring from which
+// a new project's seed is selected in spiral order.
 function hexRing(radius) {
   if (radius === 0) return [{ q: 0, r: 0 }];
   const out = [];
@@ -46,19 +44,18 @@ function hexRing(radius) {
   return out;
 }
 
-// Câte celule are nevoie un proiect, în funcție de câți agenți are.
+// Number of cells a project needs based on its agent count.
 const cellsNeeded = (size) =>
   Math.max(1, Math.min(MAX_CELLS, Math.ceil(size / SLOTS_PER_CELL)));
 
-/** Distanța hexagonală (axială) dintre două celule. */
+/** Hexagonal (axial) distance between two cells. */
 function hexDistance(a, b) {
   return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
 }
 
-// Este harta un singur teritoriu conex? Flood-fill peste toate celulele
-// ocupate de toate proiectele, pe cele 6 direcții hexagonale. Spre
-// deosebire de sursă, nu există nicio celulă "stepping stone" de trecut
-// cu vederea — aici nu există celulă rezervată de niciun fel.
+// Is the map one connected territory? Flood-fill all cells occupied by all
+// projects in the six hex directions. Unlike the source, no "stepping stone"
+// cell is ignored because no cell is reserved here.
 function isConnected(out) {
   const cells = new Map();
   for (const [, list] of out) for (const c of list) cells.set(key(c.q, c.r), c);
@@ -79,7 +76,7 @@ function isConnected(out) {
   return seen.size === cells.size;
 }
 
-/** Claim vecini liberi până când blob-ul ajunge la mărimea dorită, lipit de rădăcină. */
+/** Claim free neighbors until the blob reaches the desired size, anchored to its root. */
 function growBlob(cells, want, free) {
   const root = cells[0];
   while (cells.length < want) {
@@ -89,7 +86,7 @@ function growBlob(cells, want, free) {
       for (const [dq, dr] of HEX_DIRS) {
         const n = { q: c.q + dq, r: c.r + dr };
         if (!free.has(key(n.q, n.r))) continue;
-        // Lipit de rădăcină întâi, apoi de mijlocul hărții, ca blob-urile să iasă compacte.
+        // Prefer proximity to the root, then map center, to keep blobs compact.
         const score = hexDistance(n, root) * 100 + hexDistance(n, ORIGIN);
         if (score < bestScore) {
           bestScore = score;
@@ -97,7 +94,7 @@ function growBlob(cells, want, free) {
         }
       }
     }
-    if (!best) break; // complet încercuit de vecini
+    if (!best) break; // completely surrounded by neighbors
     free.delete(key(best.q, best.r));
     cells.push(best);
   }
@@ -107,12 +104,10 @@ function layOut(projects, previous) {
   const wanted = projects.map((p) => ({ id: p.id, want: cellsNeeded(p.size) }));
   const total = wanted.reduce((n, w) => n + w.want, 0);
 
-  // Pool-ul de celule libere, în ordine de spirală din centru. Trebuie să
-  // acopere și cea mai îndepărtată celulă "amintită" de un proiect
-  // inactiv, nu doar nevoia de azi — altfel un proiect care a stat mult la
-  // margine își pierde celula din `free` quando harta se micșorează și nu
-  // și-o mai poate recupera, ceea ce ar produce exact saltul pe care
-  // memoria există ca să-l prevină.
+  // Pool of free cells in a center-out spiral. It must cover the most distant
+  // cell remembered for an inactive project, not only today's needs. Otherwise
+  // a project long placed at the edge loses its cell from `free` when the map
+  // shrinks and cannot reclaim it, causing the exact jump memory prevents.
   const pool = [];
   const free = new Set();
   let farthest = 0;
@@ -131,14 +126,14 @@ function layOut(projects, previous) {
   for (const { id, want } of wanted) {
     const before = previous.get(id);
     if (!before || !before.length) continue;
-    // Rădăcina e esențială — dacă nu mai e liberă, proiectul e re-așezat
-    // de la zero, nu re-rădăcinat tacit pe altă celulă veche.
+    // The root is essential. If no longer free, lay the project out from
+    // scratch rather than silently re-rooting it on another old cell.
     if (!free.has(key(before[0].q, before[0].r))) continue;
     const keep = [];
     for (const cell of before) {
-      if (keep.length >= want) break; // s-a micșorat: renunță la ce a luat ultimul
+      if (keep.length >= want) break; // shrank: release the cells acquired last
       const k = key(cell.q, cell.r);
-      if (!free.has(k)) continue; // duplicat dintr-un fișier editat manual
+      if (!free.has(k)) continue; // duplicate from a manually edited file
       free.delete(k);
       keep.push({ q: cell.q, r: cell.r });
     }
@@ -146,8 +141,8 @@ function layOut(projects, previous) {
   }
 
   const out = new Map();
-  // Cei deja existenți cresc primii, ca un proiect nou să nu fure celula
-  // în care o zonă existentă voia să se extindă.
+  // Existing projects grow first so a new project cannot steal the cell into
+  // which an existing zone intended to expand.
   for (const { id, want } of wanted) {
     const cells = held.get(id);
     if (!cells) continue;
@@ -171,18 +166,18 @@ function layOut(projects, previous) {
 }
 
 /**
- * @param projects  [{ id, size }], ordonate deja de apelant (cel mai mare primul —
- *                  doar ordinea decide cui i se dă cea mai apropiată celulă de centru
- *                  DINTRE proiectele noi, fără istoric).
- * @param previous  Map<id, [{q, r}, ...]> — layout-ul anterior (poate fi gol/lipsă
- *                  la primul apel).
+ * @param projects  [{ id, size }], already ordered by the caller (largest
+ *                  first; order alone decides which NEW project without
+ *                  history receives the cell closest to center).
+ * @param previous  Map<id, [{q, r}, ...]> — previous layout, possibly empty
+ *                  or absent on the first call.
  * @returns Map<id, [{q, r}, ...]>
  */
 function allocateCells(projects, previous = new Map()) {
   const laid = layOut(projects, previous);
-  // Memoria contează mult, dar nu mai mult decât un teritoriu întreg: dacă
-  // ținerea minte a zonelor ar produce insule izolate, se reface totul
-  // compact, din centru, o singură dată — ca ultimă soluție.
+  // Memory matters, but not more than one connected territory. If remembering
+  // zones would create isolated islands, rebuild once compactly from center as
+  // a last resort.
   return isConnected(laid) ? laid : layOut(projects, new Map());
 }
 

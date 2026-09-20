@@ -3264,7 +3264,7 @@ test('T-18 click pe reveal-btn cheamă POST /api/reveal cu body {folder: agent.c
 
 test('T-18 New session: răspuns non-ok (400) -> mesaj de eroare afișat în #open-error', async () => {
   const { app } = await loadAppWithSelectedAgent();
-  app.setNewSessionImpl(async () => ({ ok: false, status: 400, json: async () => ({ ok: false, error: 'folder invalid sau inexistent' }) }));
+  app.setNewSessionImpl(async () => ({ ok: false, status: 400, json: async () => ({ ok: false, error: 'invalid or missing folder' }) }));
 
   await app.clickNewSession();
 
@@ -3284,7 +3284,7 @@ test('T-18 New session: eșec de rețea (fetch aruncă) -> mesaj de eroare afiș
 
 test('T-18 Reveal in folder: răspuns non-ok (400) -> mesaj de eroare afișat în #open-error', async () => {
   const { app } = await loadAppWithSelectedAgent();
-  app.setRevealImpl(async () => ({ ok: false, status: 400, json: async () => ({ ok: false, error: 'folder invalid sau inexistent' }) }));
+  app.setRevealImpl(async () => ({ ok: false, status: 400, json: async () => ({ ok: false, error: 'invalid or missing folder' }) }));
 
   await app.clickReveal();
 

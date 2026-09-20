@@ -1,12 +1,11 @@
-// merge-state.js — merge pe 3 căi (base/local/remote) pentru starea de
-// arhivare, folosit doar de frontend (T-07). Serverul nu face merge —
-// serverul doar refuză cu 409 și întoarce starea de pe disc; browser-ul
-// face merge-ul aici și retrimite. Portat din bot-crossing
-// (src/game/merge-state.js), redus la ce ne trebuie: `archived` (set) și
-// `archivedAt` (map cheie -> epochMs). Script clasic, nu modul ES —
-// încărcat cu <script> înainte de app.js.
+// merge-state.js — three-way merge (base/local/remote) for archive state,
+// used only by the frontend (T-07). The server does not merge: it only rejects
+// with 409 and returns the on-disk state; the browser merges here and retries.
+// Ported from bot-crossing (src/game/merge-state.js), reduced to what we need:
+// `archived` (set) and `archivedAt` (key -> epochMs map). This is a classic
+// script rather than an ES module, loaded with <script> before app.js.
 
-// mergeSet — pentru `archived`: (remote ∪ (local \ base)) \ (base \ local).
+// mergeSet — for `archived`: (remote ∪ (local \ base)) \ (base \ local).
 function mergeSet(base, local, remote) {
   const baseSet = new Set(base || []);
   const localSet = new Set(local || []);
@@ -24,10 +23,10 @@ function mergeSet(base, local, remote) {
   return out;
 }
 
-// sameValue — egalitate profundă, portată din bot-crossing. Necesară pentru
-// câmpuri ca `plots` (valori = array-uri de obiecte `{x,y}`), unde `===`
-// ar considera mereu "diferit" chiar dacă conținutul e identic, din cauza
-// referințelor noi create la fiecare recalculare a layout-ului de zone.
+// sameValue — deep equality ported from bot-crossing. Required for fields such
+// as `plots` (values are arrays of `{x,y}` objects), where `===` would always
+// report "different" despite identical content because each zone-layout
+// recalculation creates new references.
 function sameValue(a, b) {
   if (a === b) return true;
   if (Array.isArray(a) && Array.isArray(b)) {
@@ -40,21 +39,21 @@ function sameValue(a, b) {
   return false;
 }
 
-// mergeMap — pentru `archivedAt`/`plots`, key-by-key: remote e baza, diff-ul
-// local se aplică peste. Egalitatea e profundă (`sameValue`), nu `===`: pentru
-// numere (archivedAt) cele două sunt echivalente, dar pentru valori complexe
-// (plots) doar `sameValue` prinde corect "neschimbat".
+// mergeMap — for `archivedAt`/`plots`, key by key: remote is the base and the
+// local diff is applied over it. Equality is deep (`sameValue`), not `===`:
+// both are equivalent for numbers (archivedAt), but only `sameValue` correctly
+// recognizes unchanged complex values (plots).
 function mergeMap(base, local, remote) {
   const baseMap = base || {};
   const localMap = local || {};
   const out = { ...(remote || {}) };
   for (const [k, v] of Object.entries(localMap)) {
-    if (k in baseMap && sameValue(baseMap[k], v)) continue; // neatins aici, lăsăm varianta remote
+    if (k in baseMap && sameValue(baseMap[k], v)) continue; // untouched locally; keep remote
     out[k] = v;
   }
   for (const k of Object.keys(baseMap)) {
     if (k in localMap) continue;
-    delete out[k]; // șters aici
+    delete out[k]; // deleted locally
   }
   return out;
 }

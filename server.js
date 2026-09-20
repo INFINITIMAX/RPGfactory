@@ -1,8 +1,8 @@
-// server.js — serverul HTTP al agent-map. RF-01: construcția modulului
-// (`createServer`) nu mai are efecte secundare — nu ascultă, nu citește
-// sesiunile de pe disc, nu lansează nimic. Pornirea efectivă e o funcție
-// separată (`startServer`), iar CLI-ul rămâne un simplu entrypoint la
-// finalul fișierului (`require.main === module`).
+// server.js — agent-map HTTP server. RF-01: module construction
+// (`createServer`) has no side effects: it does not listen, read runs from disk,
+// or launch anything. Actual startup is a separate function (`startServer`),
+// while the CLI remains a simple entry point at the end of the file
+// (`require.main === module`).
 
 const http = require('http');
 const fs = require('fs');
@@ -24,7 +24,9 @@ const { buildAllowedOrigins, checkOrigin, resolveStaticPath } = require('./serve
 const { pollClaudeCodeSessions } = require('./adapters/claude-code');
 const { createPiIngestionStore } = require('./pi-ingestion');
 const { projectPiKingdom } = require('./pi-kingdom');
+const { projectPiMissionBoard } = require('./pi-mission-board');
 const { scanPiSubagentsStatuses } = require('./adapters/pi-subagents-files');
+const { scanPiSubagentsMissions } = require('./pi-missions');
 
 const CONTENT_TYPES = {
   '.html': 'text/html',
@@ -33,9 +35,9 @@ const CONTENT_TYPES = {
   '.png': 'image/png',
 };
 
-// Un byte de control (inclusiv \r/\n) într-un sessionId nu are ce căuta
-// acolo — fie e input corupt, fie o încercare de injecție în URL-ul
-// `claude://resume?session=...` construit mai jos.
+// A control byte, including \r/\n, cannot legitimately appear in sessionId.
+// It indicates corrupt input or an injection attempt against the
+// `claude://resume?session=...` URL constructed below.
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
 
 function defaultOpener(target) {
@@ -43,7 +45,7 @@ function defaultOpener(target) {
     stdio: 'ignore',
     detached: true,
   });
-  child.on('error', () => {}); // opener-ul poate lipsi; nu trebuie să oprească serverul
+  child.on('error', () => {}); // opener may be unavailable; it must not stop the server
   child.unref();
 }
 
@@ -56,11 +58,11 @@ function defaultIsAlive(pid) {
   }
 }
 
-// Traduce erorile aruncate de profiles.js în răspunsuri HTTP. `e.code`
-// vine din modul ('VALIDATION' -> 400, 'NOT_FOUND' -> 404,
-// 'CONFLICT' -> 409, cu `e.current` atașat). O eroare fără `code` e
-// neașteptată (ex. eroare de disc) — tratată ca 500, ca la state.js, nu
-// lăsată să iasă neprinsă din callback-ul cererii HTTP.
+// Translates errors thrown by profiles.js into HTTP responses. `e.code` comes
+// from the module ('VALIDATION' -> 400, 'NOT_FOUND' -> 404, 'CONFLICT' -> 409
+// with `e.current` attached). An error without `code` is unexpected, such as a
+// disk error, and is handled as 500 as in state.js rather than escaping the
+// HTTP request callback.
 function respondProfileError(res, e) {
   if (e && e.code === 'VALIDATION') {
     res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -77,16 +79,15 @@ function respondProfileError(res, e) {
     res.end(JSON.stringify({ ok: false, error: e.message, current: e.current || null }));
     return;
   }
-  console.error('server.js: eroare neașteptată din profilesStore:', e);
+  console.error('server.js: unexpected profilesStore error:', e);
   res.writeHead(500, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ ok: false, error: 'eroare internă' }));
+  res.end(JSON.stringify({ ok: false, error: 'internal error' }));
 }
 
-// Ca `respondProfileError`, dar pentru erorile venite din `runs.js`. La
-// CONFLICT, `runsStore.associateProfile` poate atașa fie `current` (revizie
-// neconcordantă), fie `activeRuns` (I24 — run-uri active care blochează
-// asocierea) — ambele sunt trimise mai departe dacă există, fără să
-// presupunem care anume e prezentă.
+// Like `respondProfileError`, but for errors from runs.js. On CONFLICT,
+// `runsStore.associateProfile` may attach either `current` for revision
+// mismatch or `activeRuns` for I24 runs blocking association. Forward either
+// when present without assuming which one exists.
 function respondRunError(res, e) {
   if (e && e.code === 'VALIDATION') {
     res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -110,9 +111,9 @@ function respondRunError(res, e) {
     );
     return;
   }
-  console.error('server.js: eroare neașteptată din runsStore:', e);
+  console.error('server.js: unexpected runsStore error:', e);
   res.writeHead(500, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ ok: false, error: 'eroare internă' }));
+  res.end(JSON.stringify({ ok: false, error: 'internal error' }));
 }
 
 function resolveFolder(folder) {
@@ -125,9 +126,9 @@ function resolveFolder(folder) {
   }
 }
 
-// `sessionsDir` și `isAlive` sunt injectate (D1/D12) — nicio citire de pe
-// disc real sau sondă de proces reală în teste. Restul (getRank/getActivityState,
-// proiecția de activitate) rămâne neatins: aparține RF-03.
+// `sessionsDir` and `isAlive` are injected (D1/D12), preventing real disk
+// reads or real process probes in tests. The rest (getRank/getActivityState
+// and activity projection) remains unchanged and belongs to RF-03.
 function readAgents(sessionsDir, isAlive) {
   let files = [];
   try {
@@ -163,8 +164,8 @@ function readAgents(sessionsDir, isAlive) {
     .filter((a) => a && a.alive);
 }
 
-// Construiește (NU pornește) serverul HTTP. Fără efecte secundare: nu
-// ascultă porturi, nu atinge `sessionsDir` decât la o cerere efectivă.
+// Constructs, but does NOT start, the HTTP server. No side effects: it listens
+// on no ports and touches `sessionsDir` only for an actual request.
 function createServer(options = {}) {
   const publicDir = options.publicDir || path.join(__dirname, 'public');
   const sessionsDir = options.sessionsDir || path.join(os.homedir(), '.claude', 'sessions');
@@ -172,48 +173,50 @@ function createServer(options = {}) {
   const now = options.now || (() => Date.now());
   const opener = options.opener || defaultOpener;
   const isAlive = options.isAlive || defaultIsAlive;
-  // RF-03a: interval de sondare a sesiunilor Claude Code, injectabil ca
-  // restul opțiunilor (D1/D12) — 5 secunde implicit, suficient de des ca să
-  // prindă tranziții de lifecycle fără să bată disc-ul degeaba.
+  // RF-03a: Claude Code run polling interval, injectable like the other
+  // options (D1/D12). The five-second default catches lifecycle transitions
+  // without needlessly hitting disk.
   const pollIntervalMs = options.pollIntervalMs || 5000;
-  // Root-urile Pi sunt opt-in și trebuie furnizate explicit de apelant.
-  // Nu deducem home/temp, iar valori invalide dezactivează citirea live.
+  // Pi roots are opt-in and must be supplied explicitly by the caller. Never
+  // infer home/temp; invalid values disable live reading.
   const piRoots = Array.isArray(options.piRoots) && options.piRoots.every((root) =>
     typeof root === 'string' && root.trim() && path.isAbsolute(root)
   ) ? options.piRoots : [];
+  // The mission root is separate from kingdom observations and is never
+  // inferred from home, temp, or other Pi roots.
+  const piMissionRoot = typeof options.piMissionRoot === 'string' && options.piMissionRoot.trim() && path.isAbsolute(options.piMissionRoot)
+    ? options.piMissionRoot : null;
 
   const stateStore = createStateStore({ dataDir, now });
-  // Ca la stateStore: construcția store-ului nu deschide baza (RF-02b,
-  // §2.1) — deschiderea e lazy, în interiorul profiles.js, la prima cerere
-  // reală care ajunge pe /api/profiles.
+  // As with stateStore, constructing the store does not open the database
+  // (RF-02b §2.1). profiles.js opens it lazily on the first real request that
+  // reaches /api/profiles.
   const profilesStore = createProfilesStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
-  // RF-02c: handle SQLite propriu, independent de `profilesStore` — deschis
-  // lazy la fel (vezi runs.js), fără să partajeze ownership-ul de închidere.
+  // RF-02c: independently owned SQLite handle, separate from profilesStore,
+  // opened just as lazily (see runs.js) without shared close ownership.
   const runsStore = createRunsStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
-  // RF-05b: handle SQLite propriu, independent de `profilesStore`/`runsStore`
-  // — deschis lazy la fel (vezi layout.js), fără să partajeze ownership-ul
-  // de închidere. Refolosește `options.dbPath`/`options.migrationsDir`, NU o
-  // cale de configurare separată.
+  // RF-05b: independently owned SQLite handle, separate from profilesStore/
+  // runsStore, opened just as lazily (see layout.js). Reuses `options.dbPath`/
+  // `options.migrationsDir`, NOT a separate configuration path.
   const layoutStore = createLayoutStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
-  // RF-05c: handle SQLite propriu, independent de celelalte store-uri —
-  // deschis lazy la fel (vezi slot-store.js), fără să partajeze ownership-ul
-  // de închidere. Refolosește `options.dbPath`/`options.migrationsDir`.
+  // RF-05c: independently owned SQLite handle, separate from other stores and
+  // opened just as lazily (see slot-store.js). Reuses `options.dbPath`/
+  // `options.migrationsDir`.
   const slotStore = createSlotStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
-  // Ledger-ul rămâne fallback-ul opt-in atunci când nu sunt configurate
-  // root-uri live Pi.
+  // The ledger remains the opt-in fallback when no live Pi roots are configured.
   const piIngestionStore = createPiIngestionStore({ dbPath: options.dbPath, migrationsDir: options.migrationsDir, now });
 
-  // Setul de origini permise nu se cunoaște până nu ascultă efectiv
-  // serverul (portul efemer 0 devine un port real abia atunci). Se
-  // inițializează gol/restrictiv aici și se completează de `startServer`
-  // prin `server.setAllowedOrigins`, imediat după `listen`.
+  // Allowed origins are unknown until the server actually listens, when
+  // ephemeral port 0 becomes a real port. Initialize empty/restrictive here;
+  // `startServer` fills the set through `server.setAllowedOrigins` immediately
+  // after `listen`.
   let allowedOrigins = buildAllowedOrigins(options.port && options.port !== 0 ? options.port : null);
 
   const server = http.createServer((req, res) => {
     let url;
     try {
-      // rutăm și servim după `url.pathname`, niciodată după `req.url` brut
-      // (D9: altfel `?v=1` ajunge în calea de fișier).
+      // Route and serve by `url.pathname`, never raw `req.url` (D9), or
+      // `?v=1` would become part of the file path.
       url = new URL(req.url, 'http://localhost');
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -270,7 +273,7 @@ function createServer(options = {}) {
         const folder = resolveFolder(data && data.folder);
         if (!folder) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: 'folder invalid sau inexistent' }));
+          res.end(JSON.stringify({ ok: false, error: 'folder is invalid or does not exist' }));
           return;
         }
         opener(folder);
@@ -290,7 +293,7 @@ function createServer(options = {}) {
         const folder = resolveFolder(data && data.folder);
         if (!folder) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: 'folder invalid sau inexistent' }));
+          res.end(JSON.stringify({ ok: false, error: 'folder is invalid or does not exist' }));
           return;
         }
         opener('claude://code/new?' + new URLSearchParams({ folder }).toString());
@@ -314,9 +317,9 @@ function createServer(options = {}) {
       return;
     }
 
-    // RF-02b: /api/profiles și sub-căile lui. server.js nu are router — pe
-    // `pathname.split('/')` obținem segmentele, ca la orice altă rută de
-    // aici, doar că avem nevoie de un `id` opțional în cale.
+    // RF-02b: /api/profiles and its subpaths. server.js has no router; use
+    // `pathname.split('/')` to obtain segments as for every other route here,
+    // except this route needs an optional path `id`.
     if (pathname === '/api/profiles' || pathname.startsWith('/api/profiles/')) {
       const segments = pathname.split('/').filter(Boolean); // ['api', 'profiles', id?, sub?]
       const id = segments[2];
@@ -333,7 +336,7 @@ function createServer(options = {}) {
 
       if (id !== undefined && CONTROL_CHARS.test(id)) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, error: 'id invalid' }));
+        res.end(JSON.stringify({ ok: false, error: 'invalid id' }));
         return;
       }
 
@@ -407,7 +410,7 @@ function createServer(options = {}) {
         return;
       }
 
-      // /api/profiles/{id}/runs — analog cu /api/profiles/{id}/configurations.
+      // /api/profiles/{id}/runs — analogous to /api/profiles/{id}/configurations.
       if (sub === 'runs') {
         if (req.method !== 'GET') {
           res.writeHead(405, { Allow: 'GET' });
@@ -424,7 +427,7 @@ function createServer(options = {}) {
         const profile = profilesStore.getProfile(id);
         if (!profile) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: 'profilul ' + id + ' nu există' }));
+          res.end(JSON.stringify({ ok: false, error: 'profile ' + id + ' does not exist' }));
           return;
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -451,15 +454,15 @@ function createServer(options = {}) {
       return;
     }
 
-    // RF-02c: /api/runs și sub-căile lui. `id`-ul unui run poate conține
-    // ':' (formula `sourceHarness:nativeId`) — inofensiv pentru
-    // `pathname.split('/')`, fiindcă ':' nu e separator de cale.
+    // RF-02c: /api/runs and its subpaths. A run `id` may contain ':' using the
+    // `sourceHarness:nativeId` formula, which is harmless to
+    // `pathname.split('/')` because ':' is not a path separator.
     if (pathname === '/api/runs' || pathname.startsWith('/api/runs/')) {
       const segments = pathname.split('/').filter(Boolean); // ['api', 'runs', 'observe'|id?, sub?]
 
-      // POST /api/runs/observe — acțiune fixă, verificată înaintea rutării
-      // pe id, ca să nu depindă de coincidența cu un run al cărui id ar fi
-      // literal "observe".
+      // POST /api/runs/observe is a fixed action checked before ID routing so
+      // it does not depend on collision with a run literally identified as
+      // "observe".
       if (segments.length === 3 && segments[2] === 'observe') {
         if (req.method !== 'POST') {
           res.writeHead(405, { Allow: 'POST' });
@@ -494,7 +497,7 @@ function createServer(options = {}) {
 
       if (id !== undefined && CONTROL_CHARS.test(id)) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, error: 'id invalid' }));
+        res.end(JSON.stringify({ ok: false, error: 'invalid id' }));
         return;
       }
 
@@ -558,7 +561,7 @@ function createServer(options = {}) {
         const run = runsStore.getRun(id);
         if (!run) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: 'run-ul ' + id + ' nu există' }));
+          res.end(JSON.stringify({ ok: false, error: 'run ' + id + ' does not exist' }));
           return;
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -570,6 +573,26 @@ function createServer(options = {}) {
       return;
     }
 
+    function readPiKingdom({ allowLedgerFallback = true } = {}) {
+      let observations;
+      if (piRoots.length > 0) {
+        const scan = scanPiSubagentsStatuses({ roots: piRoots, maxRoots: 8, maxRuns: 1000, maxStatusBytes: 1024 * 1024 });
+        if (!scan || scan.ok !== true || !scan.value || !Array.isArray(scan.value.runs)) observations = null;
+        else observations = scan.value.runs.map((snapshot) => {
+          const timestamps = [snapshot.root, ...(Array.isArray(snapshot.children) ? snapshot.children : [])]
+            .flatMap((node) => [node && node.startedAt, node && node.lastActivityAt])
+            .filter((timestamp) => typeof timestamp === 'number' && Number.isFinite(timestamp));
+          return { snapshot, storedAt: timestamps.length ? Math.max(...timestamps) : null };
+        });
+      } else if (allowLedgerFallback) {
+        observations = runsStore.listRuns().filter((run) => run.source_harness === 'pi-subagents')
+          .map((run) => ({ snapshot: piIngestionStore.getSnapshot(run.native_id), storedAt: run.updated_at }));
+      } else {
+        observations = null;
+      }
+      return projectPiKingdom(observations, { now: now() });
+    }
+
     if (pathname === '/api/pi/kingdom') {
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.writeHead(405, { Allow: 'GET, HEAD' });
@@ -577,36 +600,10 @@ function createServer(options = {}) {
         return;
       }
       try {
-        let observations;
-        if (piRoots.length > 0) {
-          const scan = scanPiSubagentsStatuses({
-            roots: piRoots,
-            maxRoots: 8,
-            maxRuns: 1000,
-            maxStatusBytes: 1024 * 1024,
-          });
-          if (!scan || scan.ok !== true || !scan.value || !Array.isArray(scan.value.runs)) {
-            observations = null;
-          } else {
-            observations = scan.value.runs.map((snapshot) => {
-              const timestamps = [snapshot.root, ...(Array.isArray(snapshot.children) ? snapshot.children : [])]
-                .flatMap((node) => [node && node.startedAt, node && node.lastActivityAt])
-                .filter((timestamp) => typeof timestamp === 'number' && Number.isFinite(timestamp));
-              return { snapshot, storedAt: timestamps.length ? Math.max(...timestamps) : null };
-            });
-          }
-        } else {
-          observations = runsStore
-            .listRuns()
-            .filter((run) => run.source_harness === 'pi-subagents')
-            .map((run) => ({ snapshot: piIngestionStore.getSnapshot(run.native_id), storedAt: run.updated_at }));
-        }
-        const body = JSON.stringify(projectPiKingdom(observations, { now: now() }));
+        const body = JSON.stringify(readPiKingdom());
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(req.method === 'HEAD' ? undefined : body);
       } catch (_) {
-        // O citire live eșuată nu reintroduce date din ledger și nu expune
-        // detalii despre root-uri, fișiere sau payload-uri Pi.
         const body = JSON.stringify(projectPiKingdom(null, { now: now() }));
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(req.method === 'HEAD' ? undefined : body);
@@ -614,12 +611,32 @@ function createServer(options = {}) {
       return;
     }
 
-    // RF-05b: /api/world — zonele hărții, recalculate de fiecare dată (nu se
-    // face cache separat, nu invalidare manuală). Doar GET — nicio mutație
-    // expusă pentru layout (vezi layout.js, de ce nu are CAS).
-    // RF-05c: extinde ACELAȘI răspuns cu `pawns` — postul persistent al
-    // fiecărui specialist + dacă lucrează efectiv acum (vezi slot-store.js,
-    // de ce nu are CAS, aceeași motivație ca layout.js).
+    if (pathname === '/api/pi/mission-board') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { Allow: 'GET, HEAD' });
+        res.end();
+        return;
+      }
+      let kingdom;
+      try { kingdom = readPiKingdom({ allowLedgerFallback: false }); } catch (_) { kingdom = projectPiKingdom(null, { now: now() }); }
+      let missionScan = null;
+      if (piMissionRoot) {
+        try {
+          missionScan = scanPiSubagentsMissions({ root: piMissionRoot, maxMissions: 200, maxRunsPerMission: 200, maxProofsPerMission: 200, maxMissionBytes: 1024 * 1024, observedAt: now() });
+        } catch (_) { missionScan = null; }
+      }
+      const body = JSON.stringify(projectPiMissionBoard(kingdom, missionScan, { configured: !!piMissionRoot }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(req.method === 'HEAD' ? undefined : body);
+      return;
+    }
+
+    // RF-05b: /api/world map zones are recalculated every time, with no
+    // separate cache or manual invalidation. GET only; no layout mutation is
+    // exposed (see layout.js for why it has no CAS).
+    // RF-05c extends the SAME response with `pawns`: each specialist's
+    // persistent station and whether they are actively working now (see
+    // slot-store.js, which has no CAS for the same reason as layout.js).
     if (pathname === '/api/world') {
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.writeHead(405, { Allow: 'GET, HEAD' });
@@ -630,8 +647,8 @@ function createServer(options = {}) {
       const projects = groupProjects(profiles);
       const previous = layoutStore.getLayout();
       const laid = allocateCells(projects, previous);
-      // Persistă imediat, ca următoarea cerere să pornească de la acest
-      // `previous` — memoria lui `allocateCells` supraviețuiește restart-ului.
+      // Persist immediately so the next request starts from this `previous`;
+      // `allocateCells` memory survives a restart.
       layoutStore.saveLayout(laid);
       const zones = projects.map(({ id }) => ({
         project: id,
@@ -639,12 +656,12 @@ function createServer(options = {}) {
         accent: pickAccent(id),
       }));
 
-      // RF-05c: posturile persistente + pawn-uri. Calculate DUPĂ zone, ca
-      // fiecare proiect să-și cunoască deja `cells.length` (capacitatea =
-      // cells.length * 7, geometria din RF-05b).
+      // RF-05c: persistent stations and Pawns. Calculate AFTER zones so each
+      // project already knows `cells.length` (capacity = cells.length * 7,
+      // using RF-05b geometry).
       const profileNames = new Map(profiles.map((p) => [p.id, p.name]));
-      // 'running' = lucru confirmat acum; 'queued'/'paused' NU (în așteptare,
-      // nu execuție efectivă).
+      // 'running' means confirmed work now; 'queued'/'paused' do NOT because
+      // they are waiting rather than actively executing.
       const workingIds = new Set(
         runsStore
           .listRuns()
@@ -669,9 +686,9 @@ function createServer(options = {}) {
             project: zone.project,
             slotIndex,
             working: workingIds.has(profileId),
-            // RF-06 (netratat aici): mărimea reală va veni din usage propriu
-            // recent. Fix la 1 în acest lot — spec.md §7 cere explicit ca
-            // LIPSA de date de consum să nu producă mărime maximă.
+            // RF-06 (not handled here): actual size will come from recent own
+            // usage. Fixed at 1 in this batch; spec.md §7 explicitly requires
+            // missing consumption data not to produce maximum size.
             sizeFactor: 1,
           });
         }
@@ -688,7 +705,7 @@ function createServer(options = {}) {
       return;
     }
 
-    // orice altă cerere e tratată ca fișier static din public/
+    // Treat every other request as a static file under public/.
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405, { Allow: 'GET, HEAD' });
       res.end();
@@ -727,49 +744,43 @@ function createServer(options = {}) {
     res.end(req.method === 'HEAD' ? undefined : content);
   });
 
-  // wiring intern folosit doar de `startServer`, după ce portul real e
-  // cunoscut — nu face parte din contractul public al modulului.
+  // Internal wiring used only by `startServer` after the real port is known;
+  // not part of the module's public contract.
   server.setAllowedOrigins = (allowed) => {
     allowedOrigins = allowed;
   };
 
-  // RF-02b-b: expune închiderea bazei de profiluri, altfel handle-ul SQLite
-  // memoizat (deschis lazy de profiles.js) rămâne deschis după ce serverul
-  // HTTP se oprește. `close()` intern e sigur de apelat necondiționat —
-  // vezi profiles.js (nu deschide baza doar ca s-o închidă la loc).
-  // Rămâne disponibil separat pentru un apelant care vrea explicit doar
-  // baza, fără să oprească HTTP-ul.
+  // RF-02b-b: expose profile-database closing or the memoized SQLite handle,
+  // opened lazily by profiles.js, remains open after the HTTP server stops.
+  // Internal `close()` is safe to call unconditionally; profiles.js does not
+  // open the database merely to close it. Keep this separately available to a
+  // caller that explicitly wants only the database closed without stopping HTTP.
   server.closeProfilesStore = profilesStore.close;
-  // RF-02c: la fel, pentru `runsStore` — handle SQLite separat, ownership
-  // separat la închidere.
+  // RF-02c: likewise for runsStore, with separate SQLite handle ownership.
   server.closeRunsStore = runsStore.close;
-  // RF-05b: la fel, pentru `layoutStore` — handle SQLite separat, ownership
-  // separat la închidere.
+  // RF-05b: likewise for layoutStore, with separate SQLite handle ownership.
   server.closeLayoutStore = layoutStore.close;
-  // RF-05c: la fel, pentru `slotStore` — handle SQLite separat, ownership
-  // separat la închidere.
+  // RF-05c: likewise for slotStore, with separate SQLite handle ownership.
   server.closeSlotStore = slotStore.close;
   server.closePiIngestionStore = piIngestionStore.close;
 
-  // RF-03a: sondarea periodică a sesiunilor Claude Code. `createServer` NU
-  // pornește timer-ul la construcție (D1) — un `setInterval` pornit aici ar
-  // citi sesiuni reale de pe disc doar pentru că cineva a CONSTRUIT
-  // serverul, chiar dacă nu l-a pornit niciodată. `startPolling`/
-  // `stopPolling` sunt idempotente: `pollTimer` e păstrat în closure ca
-  // gardă — a doua chemare a `startPolling()` nu creează al doilea timer,
-  // iar `stopPolling()` e sigur de apelat chiar dacă n-a pornit niciodată
-  // (`clearInterval(null)` nu aruncă).
+  // RF-03a: periodic Claude Code run polling. `createServer` does NOT start
+  // the timer during construction (D1); doing so would read real runs from
+  // disk merely because someone CONSTRUCTED the server even if it never
+  // started. `startPolling`/`stopPolling` are idempotent. Closure-held
+  // `pollTimer` guards against a second timer, and `stopPolling()` is safe even
+  // if polling never started (`clearInterval(null)` does not throw).
   let pollTimer = null;
   server.startPolling = () => {
     if (pollTimer) return;
     pollTimer = setInterval(() => {
       pollClaudeCodeSessions({ sessionsDir, isAlive, runsStore });
     }, pollIntervalMs);
-    // Timer-ul nu trebuie să țină procesul Node agățat DOAR prin el însuși
-    // — dacă restul serverului s-a închis (HTTP oprit, baze închise), un
-    // `setInterval` fără `.unref()` ar fi singurul motiv pentru care
-    // procesul n-ar ieși. `unref()` elimină acel motiv, fără să afecteze
-    // `stopPolling()` (tot îl putem opri explicit oricând).
+    // The timer must not keep the Node process alive BY ITSELF. If the rest of
+    // the server closed (HTTP stopped, databases closed), a `setInterval`
+    // without `.unref()` would be the only reason the process remained.
+    // `unref()` removes that reason without affecting `stopPolling()`; polling
+    // can still be explicitly stopped at any time.
     pollTimer.unref();
   };
   server.stopPolling = () => {
@@ -779,29 +790,27 @@ function createServer(options = {}) {
     }
   };
 
-  // RF-02b-c: `closeProfilesStore` de mai sus nu ajută dacă apelantul
-  // oprește serverul cu `.close()` direct pe obiectul brut (fără să treacă
-  // prin `startServer(...)`) — atunci nimeni nu-l cheamă și baza rămâne
-  // deschisă. Înfășurăm metoda nativă ca ORICE apelant al `close()` să
-  // închidă și baza, automat. `nativeClose` păstrează comportamentul
-  // nativ: dacă serverul n-a ascultat niciodată, callback-ul primește
-  // eroarea `ERR_SERVER_NOT_RUNNING` exact ca înainte — noi doar o
-  // propagăm mai departe, nu o înghițim și nu o transformăm.
-  // RF-02c: extinde ACELAȘI wrapper (nu creează altul paralel) — la orice
-  // închidere a serverului, se închide și `runsStore`, alături de
-  // `profilesStore`.
+  // RF-02b-c: `closeProfilesStore` above does not help when a caller stops the
+  // raw server directly with `.close()` rather than going through
+  // `startServer(...)`; nobody would call it and the database would remain
+  // open. Wrap the native method so EVERY `close()` caller also closes the
+  // database automatically. `nativeClose` preserves native behavior: if the
+  // server never listened, the callback receives `ERR_SERVER_NOT_RUNNING`
+  // exactly as before. Propagate rather than swallow or transform it.
+  // RF-02c extends the SAME wrapper, rather than creating a parallel one, so
+  // every server close also closes runsStore alongside profilesStore.
   const nativeClose = server.close.bind(server);
   server.close = (callback) => nativeClose((err) => {
-    // RF-03a: extinde ACELAȘI wrapper (nu creează altul paralel) — orice
-    // închidere a serverului oprește și sondarea în fundal, alături de
-    // `profilesStore`/`runsStore`.
+    // RF-03a extends the SAME wrapper rather than creating a parallel one;
+    // every server close also stops background polling alongside
+    // profilesStore/runsStore.
     server.stopPolling();
     profilesStore.close();
     runsStore.close();
-    // RF-05b: extinde ACELAȘI wrapper (nu creează altul paralel) — la orice
-    // închidere a serverului, se închide și `layoutStore`.
+    // RF-05b extends the SAME wrapper rather than creating a parallel one;
+    // every server close also closes layoutStore.
     layoutStore.close();
-    // RF-05c: la fel, pentru `slotStore`.
+    // RF-05c: likewise for slotStore.
     slotStore.close();
     piIngestionStore.close();
     if (callback) callback(err);
@@ -810,11 +819,11 @@ function createServer(options = {}) {
   return server;
 }
 
-// Construiește ȘI pornește serverul. Rezolvă după ce ascultă efectiv, cu
-// portul real alocat (`server.address().port`) — esențial pentru portul
-// efemer `0` folosit de teste.
+// Constructs AND starts the server. Resolves after it is actually listening,
+// with the allocated real port (`server.address().port`), which is essential
+// for ephemeral test port `0`.
 function startServer(options = {}) {
-  const host = options.host || '127.0.0.1'; // loopback implicit — niciodată wildcard din greșeală (D2)
+  const host = options.host || '127.0.0.1'; // default loopback, never an accidental wildcard (D2)
   const port = options.port !== undefined ? options.port : (process.env.PORT || 5311);
   const sessionsDir = options.sessionsDir || path.join(os.homedir(), '.claude', 'sessions');
 
@@ -825,8 +834,8 @@ function startServer(options = {}) {
     server.listen(port, host, () => {
       const address = server.address();
       server.setAllowedOrigins(buildAllowedOrigins(address.port));
-      // RF-03a: sondarea în fundal pornește doar aici, după `listen()` —
-      // niciodată la `createServer()` (D1).
+      // RF-03a: background polling starts only here after `listen()`, never
+      // in `createServer()` (D1).
       server.startPolling();
       console.log('agent-map skeleton running at http://' + host + ':' + address.port + '/');
       console.log('reading sessions from ' + sessionsDir);
@@ -834,12 +843,11 @@ function startServer(options = {}) {
         server,
         address,
         port: address.port,
-        // RF-02b-c/RF-02c/RF-05b/RF-05c: `server.close()` închide automat
-        // profilesStore, runsStore, layoutStore ȘI slotStore (vezi wrapper-ul din
-        // `createServer`) — HTTP-ul se oprește întâi
-        // (așteaptă cererile active, comportamentul implicit al
-        // http.Server#close()), abia apoi se închide baza, deci nu există
-        // fereastră în care închiderea bazei să taie o cerere în curs.
+        // RF-02b-c/RF-02c/RF-05b/RF-05c: `server.close()` automatically closes
+        // profilesStore, runsStore, layoutStore, AND slotStore through the
+        // createServer wrapper. HTTP stops first, waiting for active requests
+        // as http.Server#close() normally does, and only then closes databases.
+        // No window exists in which database closing can cut off a request.
         close: () => new Promise((res) => server.close(() => res())),
       });
     });
@@ -850,7 +858,9 @@ if (require.main === module) {
   const piRoots = (process.env.PI_SUBAGENTS_ROOTS || '')
     .split(path.delimiter)
     .filter((root) => root.trim() && path.isAbsolute(root));
-  startServer({ piRoots }).catch((e) => {
+  const piMissionRoot = typeof process.env.PI_SUBAGENTS_MISSION_ROOT === 'string' && path.isAbsolute(process.env.PI_SUBAGENTS_MISSION_ROOT)
+    ? process.env.PI_SUBAGENTS_MISSION_ROOT : undefined;
+  startServer({ piRoots, piMissionRoot }).catch((e) => {
     console.error(e);
     process.exit(1);
   });

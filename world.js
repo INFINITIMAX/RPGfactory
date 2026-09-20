@@ -1,30 +1,29 @@
-// world.js — funcții PURE pentru RF-05b: gruparea profilurilor pe proiect și
-// alegerea culorii de accent per proiect. Fără bază de date, fără HTTP, fără
-// efecte secundare la require — la fel ca `hex-layout.js`.
+// world.js — PURE RF-05b functions for grouping profiles by project and
+// choosing each project's accent color. No database, HTTP, or require-time
+// side effects, just like `hex-layout.js`.
 //
-// Sursă de referință: bot-crossing (src/world/plots.js) — `PLOT_PALETTE` și
-// `hashString` portate ca listă de culori CSS și, respectiv, FNV-1a simplu
-// pentru alegere deterministă. NU s-a importat nimic din geometrie/randare
-// 3D (deja portat separat în hex-layout.js/public/world.js).
+// Reference source: bot-crossing (src/world/plots.js). `PLOT_PALETTE` and
+// `hashString` were ported as a CSS color list and simple FNV-1a respectively
+// for deterministic selection. No 3D geometry/rendering was imported; those
+// concerns were ported separately in hex-layout.js/public/world.js.
 
 /**
- * Grupează profilurile pe `last_project`, ordonate descrescător după
- * mărime (cel mai mare primul — ordinea decide cui i se dă cea mai apropiată
- * celulă de centru DINTRE proiectele noi, fără istoric — vezi hex-layout.js),
- * la egalitate de mărime ordonate alfabetic după `project` (determinist, nu
- * ordinea de întoarcere din SQLite).
+ * Groups profiles by `last_project`, sorted descending by size. The largest
+ * comes first because ordering decides which NEW project without history gets
+ * the cell closest to center (see hex-layout.js). Equal-sized groups sort
+ * alphabetically by `project`, independent of SQLite return order.
  *
- * Profilurile cu `last_project` null/gol sunt EXCLUSE (nu au unde sta pe
- * hartă în acest lot) — limitare acceptată, nu reparată aici.
+ * Profiles with null/empty `last_project` are EXCLUDED because they have no
+ * map location in this batch. This is an accepted limitation, not fixed here.
  *
- * @param profiles  rândurile întoarse de `profilesStore.listProfiles()`.
+ * @param profiles  Rows returned by `profilesStore.listProfiles()`.
  * @returns [{ id: string, size: number }]
  */
 function groupProjects(profiles) {
   const counts = new Map();
   for (const profile of profiles) {
     const project = profile.last_project;
-    if (!project) continue; // null/gol — exclus, fără loc pe hartă în acest lot
+    if (!project) continue; // null/empty: excluded, with no map location in this batch
     counts.set(project, (counts.get(project) || 0) + 1);
   }
 
@@ -36,11 +35,10 @@ function groupProjects(profiles) {
   return projects;
 }
 
-// Paletă de 12 culori CSS distincte, portate din `PLOT_PALETTE` (valorile
-// hex numerice din sursa Three.js devin șiruri CSS). Alese să rămână
-// lizibile atât pe fond întunecat (tema curentă din hud.css, #111) cât și
-// pe un eventual fond deschis — nicio culoare prea apropiată de alb sau de
-// negru pur.
+// Twelve distinct CSS colors ported from `PLOT_PALETTE` (numeric Three.js hex
+// values become CSS strings). Selected to remain readable on both a dark
+// background (current hud.css theme, #111) and a possible light background;
+// no color is too close to pure white or black.
 const PALETTE = [
   '#c96442',
   '#4f9a63',
@@ -56,8 +54,8 @@ const PALETTE = [
   '#7f6fc9',
 ];
 
-// FNV-1a simplu, portat din `hashString` (bot-crossing) — determinist,
-// independent de ordinea sau numărul de apeluri.
+// Simple FNV-1a ported from bot-crossing `hashString`: deterministic and
+// independent of call count or order.
 function hashString(str) {
   let h = 2166136261;
   for (let i = 0; i < str.length; i++) {
@@ -68,33 +66,33 @@ function hashString(str) {
 }
 
 /**
- * Culoare stabilă per proiect — același `project` -> aceeași culoare,
- * indiferent de ordine sau de câte ori se cheamă.
+ * Stable color per project: the same `project` yields the same color,
+ * regardless of order or call count.
  * @param project string
- * @returns string  culoare CSS din PALETTE
+ * @returns string  CSS color from PALETTE
  */
 function pickAccent(project) {
   return PALETTE[hashString(project) % PALETTE.length];
 }
 
 /**
- * Profilurile fiecărui proiect, ca listă de ID-uri (NU doar numărul, ca la
- * `groupProjects`) — RF-05c are nevoie să știe CUI anume îi dă un slot, nu
- * doar câți sunt. Aceeași excludere ca `groupProjects`: `last_project`
- * null/gol -> exclus (fără loc pe hartă în acest lot).
+ * Profiles for each project as an ID list, not only a count as in
+ * `groupProjects`. RF-05c needs to know exactly WHO receives a slot. Uses the
+ * same exclusion as `groupProjects`: null/empty `last_project` is excluded
+ * because it has no map location in this batch.
  *
- * Ordinea din fiecare listă contează pentru `assignSlots` (mai jos) — se
- * păstrează ordinea din `profiles` (deja `ORDER BY created_at ASC, id ASC`
- * din `profilesStore.listProfiles()`), nu se resortează aici.
+ * Order within each list matters to `assignSlots` below. Preserve order from
+ * `profiles` (already `ORDER BY created_at ASC, id ASC` from
+ * `profilesStore.listProfiles()`) rather than resorting here.
  *
- * @param profiles  rândurile întoarse de `profilesStore.listProfiles()`.
+ * @param profiles  Rows returned by `profilesStore.listProfiles()`.
  * @returns Map<project, [profileId, ...]>
  */
 function profilesByProject(profiles) {
   const byProject = new Map();
   for (const profile of profiles) {
     const project = profile.last_project;
-    if (!project) continue; // null/gol — exclus, ca la groupProjects
+    if (!project) continue; // null/empty: excluded, as in groupProjects
     if (!byProject.has(project)) byProject.set(project, []);
     byProject.get(project).push(profile.id);
   }
@@ -102,31 +100,29 @@ function profilesByProject(profiles) {
 }
 
 /**
- * Alocă un post (slot_index) fiecărui profil dintr-un SINGUR proiect, cu
- * memorie — determinist, NU hash+jitter (spec.md §7 interzice explicit:
- * hash+jitter ar suprapune vizual doi specialiști diferiți, la momente
- * diferite, peste același slot, pentru că poziția s-ar recalcula din hash-ul
- * id-ului în loc să rămână un întreg mic alocat explicit).
+ * Assigns a station (`slot_index`) to every profile in ONE project, with
+ * memory. This is deterministic, NOT hash+jitter. spec.md §7 explicitly
+ * prohibits hash+jitter because it could visually overlap two different
+ * specialists on the same slot at different times by recalculating position
+ * from an ID hash instead of retaining a small explicitly assigned integer.
  *
- * Regulile de memorie:
- * - un profil care avea deja un post (`previous`) îl PĂSTREAZĂ, cât timp
- *   `slotIndex < capacity` ȘI el mai apare în `profileIds` — un specialist
- *   nu sare din slot doar pentru că a apărut/plecat un coleg;
- * - un profil care nu mai apare în `profileIds` (a plecat din proiect) își
- *   eliberează postul — nu apare în rezultat, iar slotul devine liber pentru
- *   alocările noi de mai jos;
- * - un profil FĂRĂ post anterior (sau al cărui post vechi nu mai încape sub
- *   `capacity`) primește cel mai mic `slotIndex` liber; ordinea din
- *   `profileIds` decide cine ia sloturile noi disponibile primul (primul din
- *   listă ia primul slot liber);
- * - dacă `profileIds.length > capacity`, cei care nu mai încap NU primesc
- *   slot (nu apar în rezultat) — limitare acceptată în acest lot, nu se
- *   inventează niciun „overflow" vizual.
+ * Memory rules:
+ * - a profile with a previous station (`previous`) KEEPS it while
+ *   `slotIndex < capacity` AND it remains in `profileIds`; a specialist does
+ *   not jump slots merely because a colleague appeared or departed;
+ * - a profile absent from `profileIds` has left the project and releases its
+ *   station; it is absent from the result and the slot becomes available;
+ * - a profile WITHOUT a previous station, or whose old station exceeds
+ *   `capacity`, receives the lowest free `slotIndex`; `profileIds` order
+ *   decides who gets newly available slots first;
+ * - when `profileIds.length > capacity`, profiles that do not fit receive no
+ *   slot and are absent from the result. This accepted limitation does not
+ *   invent visual overflow.
  *
- * @param profileIds  [profileId, ...] — id-urile curente din acest proiect.
- * @param previous    Map<profileId, slotIndex> — posturile anterioare ale
- *                     ACESTUI proiect (nu ale altor proiecte).
- * @param capacity    număr total de sloturi ale zonei = cells.length * 7.
+ * @param profileIds  Current [profileId, ...] values for this project.
+ * @param previous    Map<profileId, slotIndex> — previous stations for THIS
+ *                    project, not other projects.
+ * @param capacity    Total zone slots = cells.length * 7.
  * @returns Map<profileId, slotIndex>
  */
 function assignSlots(profileIds, previous, capacity) {
@@ -134,8 +130,8 @@ function assignSlots(profileIds, previous, capacity) {
   const result = new Map();
   const takenSlots = new Set();
 
-  // Pasul 1: păstrează posturile anterioare valide — profilul mai e în
-  // proiect ȘI slotul mai încape sub capacitatea curentă.
+  // Step 1: retain valid previous stations when the profile is still in the
+  // project AND the slot still fits within current capacity.
   const needsSlot = [];
   for (const profileId of profileIds) {
     const prevSlot = previous.get(profileId);
@@ -147,12 +143,12 @@ function assignSlots(profileIds, previous, capacity) {
     }
   }
 
-  // Pasul 2: cei fără post valid primesc cel mai mic slot liber, în ordinea
-  // din `profileIds` (determinist, nu hash/random).
+  // Step 2: profiles without a valid station receive the lowest free slot in
+  // `profileIds` order, deterministically rather than by hash/random.
   let nextFree = 0;
   for (const profileId of needsSlot) {
     while (nextFree < capacity && takenSlots.has(nextFree)) nextFree++;
-    if (nextFree >= capacity) continue; // nu mai încape — overflow acceptat, fără slot
+    if (nextFree >= capacity) continue; // no room: accepted overflow, no slot
     result.set(profileId, nextFree);
     takenSlots.add(nextFree);
   }

@@ -1,5 +1,5 @@
-// status.js — calculează starea reală (working/waiting/sleeping) a unui agent,
-// folosind exact metoda bot-crossing: awaitingReply() peste coada transcript-ului.
+// status.js — calculates an agent's actual state (working/waiting/sleeping)
+// using the exact bot-crossing method: awaitingReply() over the transcript tail.
 
 const fs = require('fs');
 const path = require('path');
@@ -9,11 +9,11 @@ const { encodeCwd } = require('./rank');
 const CLAUDE_HOME = path.join(os.homedir(), '.claude');
 const PROJECTS_DIR = path.join(CLAUDE_HOME, 'projects');
 
-const ACTIVE_WINDOW_MS = 30 * 60 * 1000; // 30 minute
-const TAIL_BYTES = 64 * 1024; // 64KB — diferit de cei 20KB din rank.js, ca la bot-crossing
+const ACTIVE_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+const TAIL_BYTES = 64 * 1024; // 64 KB, unlike rank.js's 20 KB, matching bot-crossing
 
-// cache pe cale de fișier, invalidat pe mtime — evită re-citirea cozii la
-// fiecare poll dacă transcript-ul nu s-a schimbat între timp.
+// File-path cache invalidated by mtime, avoiding a tail read on every poll
+// when the transcript has not changed.
 const cache = new Map();
 
 function readTail(filePath, size) {
@@ -30,12 +30,12 @@ function readTail(filePath, size) {
   }
 }
 
-// Parcurge coada transcript-ului de la ultima linie spre prima. Oprește
-// căutarea la prima linie de tip 'user' (întoarce false — modelul urmează
-// să vorbească) sau la prima linie de tip 'assistant' găsită.
+// Walks the transcript tail from the last line to the first. Stops at the
+// first 'user' line (returns false because the model should speak next) or
+// the first 'assistant' line found.
 function awaitingReplyFromText(text, truncated) {
   const lines = text.split('\n');
-  // dacă am tăiat coada, prima linie poate fi parțială — o ignorăm.
+  // If the tail was truncated, the first line may be partial; ignore it.
   const usableLines = truncated ? lines.slice(1) : lines;
 
   for (let i = usableLines.length - 1; i >= 0; i--) {
@@ -61,8 +61,8 @@ function awaitingReplyFromText(text, truncated) {
   return false;
 }
 
-// Întoarce { activity } pentru un (cwd, sessionId) dat. Nu aruncă niciodată —
-// orice eroare (fișier lipsă, JSON invalid) degradează la { activity: null }.
+// Returns { activity } for a given (cwd, sessionId). Never throws; any error
+// (missing file, invalid JSON) degrades to { activity: null }.
 function getActivityState(cwd, sessionId) {
   if (!cwd || !sessionId) return { activity: null };
 
