@@ -50,8 +50,9 @@ Terrain, castle, Pawns, gold, and chrome use the Tiny Swords visual language: co
 
 ## Motion
 
-- One motion family: the working Pawn animation and direct camera feedback.
-- `prefers-reduced-motion: reduce` stops time-dependent animation.
+- One motion family: a confirmed active Pawn runs and traverses a bounded station-to-work route; direct camera feedback remains immediate.
+- Traversal is driven only by public `active=true`, preserves world-space continuity across polling, and freezes when the node becomes inactive or terminal.
+- `prefers-reduced-motion: reduce` removes time-dependent sprite and spatial movement while preserving explicit textual state.
 - No decorative entrance animations or pulses without operational meaning.
 
 ## Local desktop and accessibility

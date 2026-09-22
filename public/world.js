@@ -35,12 +35,21 @@
     { key: 'watchtower', x: 640, y: 700, width: 64, sourceWidth: 128, sourceHeight: 256 }
   ];
   const stations = [
-    { x: 515, y: 365 }, { x: 765, y: 365 }, { x: 590, y: 485 }, { x: 690, y: 485 },
-    { x: 275, y: 270 }, { x: 420, y: 270 }, { x: 280, y: 380 }, { x: 420, y: 390 },
-    { x: 850, y: 265 }, { x: 1000, y: 265 }, { x: 850, y: 390 }, { x: 1000, y: 390 },
-    { x: 850, y: 555 }, { x: 1005, y: 555 }, { x: 850, y: 670 }, { x: 1005, y: 680 },
-    { x: 275, y: 555 }, { x: 425, y: 555 }, { x: 275, y: 680 }, { x: 425, y: 680 }
+    { x: 515, y: 365, work: { x: 545, y: 395 } }, { x: 765, y: 365, work: { x: 735, y: 395 } },
+    { x: 590, y: 485, work: { x: 610, y: 455 } }, { x: 690, y: 485, work: { x: 670, y: 455 } },
+    { x: 275, y: 270, work: { x: 305, y: 300 } }, { x: 420, y: 270, work: { x: 390, y: 300 } },
+    { x: 280, y: 380, work: { x: 315, y: 405 } }, { x: 420, y: 390, work: { x: 390, y: 420 } },
+    { x: 850, y: 265, work: { x: 880, y: 295 } }, { x: 1000, y: 265, work: { x: 970, y: 295 } },
+    { x: 850, y: 390, work: { x: 885, y: 415 } }, { x: 1000, y: 390, work: { x: 970, y: 420 } },
+    { x: 850, y: 555, work: { x: 880, y: 585 } }, { x: 1005, y: 555, work: { x: 975, y: 585 } },
+    { x: 850, y: 670, work: { x: 885, y: 640 } }, { x: 1005, y: 680, work: { x: 975, y: 645 } },
+    { x: 275, y: 555, work: { x: 305, y: 585 } }, { x: 425, y: 555, work: { x: 395, y: 585 } },
+    { x: 275, y: 680, work: { x: 310, y: 650 } }, { x: 425, y: 680, work: { x: 395, y: 650 } }
   ];
+  const coordinatorStation = { x: WORLD.centerX, y: WORLD.centerY };
+  const coordinatorWork = { x: WORLD.centerX, y: 465 };
+  const motionByNodeId = new Map();
+  const motionSpeed = 92;
   const districtLabels = [
     { text: 'IMPLEMENTATION', x: 350, y: 185 }, { text: 'TESTING', x: 930, y: 180 },
     { text: 'REVIEW', x: 350, y: 742 }, { text: 'RESEARCH', x: 930, y: 742 },
@@ -105,11 +114,13 @@
     const rows = 18;
     return { x: -180 - Math.floor(index / rows) * 82, y: 70 + (index % rows) * 44 };
   }
-  function nodePositions() {
-    const positions = new Map();
-    if (!snapshot) return positions;
+  function overflowWork(station) { return { x: station.x + 34, y: station.y + 24 }; }
+  function motionPermitted() { return !reduced() && document.hidden !== true; }
+  function nodeAnchors() {
+    const anchors = new Map();
+    if (!snapshot) return anchors;
     const root = snapshot.nodes.find((node) => node.rank === 'coordinator');
-    if (root) positions.set(root.id, screenPoint({ x: WORLD.centerX, y: WORLD.centerY }));
+    if (root) anchors.set(root.id, { station: coordinatorStation, work: coordinatorWork });
     const used = new Set();
     let overflowIndex = 0;
     snapshot.nodes.filter((node) => !root || node.id !== root.id).slice().sort((a, b) => a.id.localeCompare(b.id)).forEach((node) => {
@@ -123,7 +134,50 @@
         station = overflowStation(overflowIndex);
         overflowIndex += 1;
       }
-      positions.set(node.id, screenPoint(station));
+      anchors.set(node.id, { station, work: station.work || overflowWork(station) });
+    });
+    return anchors;
+  }
+  function motionState(id, anchors) {
+    let state = motionByNodeId.get(id);
+    if (!state) {
+      state = { x: anchors.station.x, y: anchors.station.y, station: anchors.station, work: anchors.work, distance: 0, direction: 1, timestamp: null };
+      motionByNodeId.set(id, state);
+    }
+    return state;
+  }
+  function advanceMotion(state, timestamp) {
+    if (state.timestamp === null) { state.timestamp = timestamp; return; }
+    const elapsed = Math.min(64, Math.max(0, timestamp - state.timestamp));
+    state.timestamp = timestamp;
+    const length = Math.hypot(state.work.x - state.station.x, state.work.y - state.station.y);
+    if (!length) return;
+    let distance = state.distance + state.direction * motionSpeed * elapsed / 1000;
+    while (distance > length || distance < 0) {
+      if (distance > length) { distance = 2 * length - distance; state.direction = -1; }
+      else { distance = -distance; state.direction = 1; }
+    }
+    state.distance = distance;
+    const fraction = distance / length;
+    state.x = state.station.x + (state.work.x - state.station.x) * fraction;
+    state.y = state.station.y + (state.work.y - state.station.y) * fraction;
+  }
+  function nodePositions(timestamp) {
+    const positions = new Map();
+    if (!snapshot) return positions;
+    const anchorsByNodeId = nodeAnchors();
+    const present = new Set(snapshot.nodes.map((node) => node.id));
+    motionByNodeId.forEach((_, id) => { if (!present.has(id)) motionByNodeId.delete(id); });
+    snapshot.nodes.forEach((node) => {
+      const anchors = anchorsByNodeId.get(node.id);
+      const state = motionState(node.id, anchors);
+      const moving = node.active === true && motionPermitted();
+      if (reduced()) {
+        state.x = state.station.x; state.y = state.station.y; state.distance = 0; state.direction = 1;
+      }
+      if (moving && typeof timestamp === 'number') advanceMotion(state, timestamp);
+      else if (!moving) state.timestamp = null;
+      positions.set(node.id, screenPoint(state));
     });
     return positions;
   }
@@ -281,9 +335,9 @@
       if (!point) return;
       const radius = node.rank === 'coordinator' ? 36 : 31;
       if (node.id === selectedId) { ctx.beginPath(); ctx.arc(point.x, point.y, radius + 8, 0, Math.PI * 2); ctx.strokeStyle = '#fff0ae'; ctx.lineWidth = 3; ctx.stroke(); }
-      const active = node.active === true;
+      const active = node.active === true && motionPermitted();
       const image = active ? sprites.pawnRun : sprites.pawnIdle;
-      const frame = active && !reduced() ? Math.floor(performance.now() / 140) % 6 : 0;
+      const frame = active ? Math.floor(performance.now() / 140) % 6 : 0;
       if (spriteReady(image)) ctx.drawImage(image, frame * 192, 0, 192, 192, Math.round(point.x - radius), Math.round(point.y - radius), radius * 2, radius * 2);
       else { ctx.beginPath(); ctx.arc(point.x, point.y, radius * .62, 0, Math.PI * 2); ctx.fillStyle = colors[node.rank] || colors.unknown; ctx.fill(); }
       drawNodeLabel(node, point, radius);
@@ -301,7 +355,7 @@
     ctx.fillStyle = '#fff0bd'; ctx.textAlign = 'center'; ctx.fillText(role, point.x, top + 12);
     ctx.font = '10px Candara, sans-serif'; ctx.fillStyle = node.attention === 'needs_attention' ? '#ffd36b' : '#f7f5e9'; ctx.fillText(state, point.x, top + 24);
   }
-  function draw() {
+  function draw(timestamp) {
     resize();
     ctx.clearRect(0, 0, viewport.width, viewport.height);
     hits = [];
@@ -309,7 +363,7 @@
     drawDecorations();
     drawBuildings();
     if (!snapshot) return;
-    const positions = nodePositions();
+    const positions = nodePositions(timestamp);
     drawHandoffs(positions);
     drawProofs();
     drawNodes(positions);
@@ -321,7 +375,10 @@
     const intro = document.createElement('p');
     intro.textContent = hasNodes || hasProofs ? 'Specialists and evidence on the map:' : 'No Pi observation or evidence is available.';
     listEl.appendChild(intro);
-    (snapshot ? snapshot.nodes : []).forEach((node) => addButton([node.role || 'role unavailable', node.rank, node.lifecycle, snapshot.freshness].join(' — '), node.id === selectedId, () => selectNode(node.id)));
+    (snapshot ? snapshot.nodes : []).forEach((node) => {
+      const motion = node.active === true && motionPermitted() ? 'moving between station and work' : 'stationary';
+      addButton([node.role || 'role unavailable', node.rank, node.lifecycle, snapshot.freshness, motion].join(' — '), node.id === selectedId, () => selectNode(node.id));
+    });
     (mission ? mission.proofs : []).forEach((proof, index) => addButton('Evidence ' + (index + 1) + ' — ' + proof.kind + ' — ' + (proof.status || 'no status'), proof.ref === selectedProofRef, () => selectProof(proof.ref)));
   }
   function addButton(text, pressed, action) {
@@ -337,9 +394,9 @@
     window.dispatchEvent(new CustomEvent('rpg:world-proof-select', { detail: { proofRef: ref } }));
   }
   function syncAnimation() {
-    const animated = snapshot && snapshot.nodes.some((node) => node.active === true) && !reduced();
+    const animated = snapshot && snapshot.nodes.some((node) => node.active === true) && motionPermitted();
     if (animated && raf === null) {
-      const loop = () => { draw(); raf = requestAnimationFrame(loop); };
+      const loop = (timestamp) => { raf = null; draw(timestamp); syncAnimation(); };
       raf = requestAnimationFrame(loop);
     } else if (!animated && raf !== null) { cancelAnimationFrame(raf); raf = null; }
   }
@@ -384,5 +441,6 @@
   window.addEventListener('rpg:pi-node-selected', (event) => { selectedId = event.detail.nodeId; selectedProofRef = null; draw(); renderList(); });
   window.addEventListener('rpg:proof-selected', (event) => { selectedProofRef = event.detail.proofRef; selectedId = null; draw(); renderList(); });
   window.addEventListener('resize', draw);
+  document.addEventListener?.('visibilitychange', () => { syncAnimation(); draw(); });
   setStatus('loading', 'Waiting for a Pi observation…'); renderList(); draw();
 }());

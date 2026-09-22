@@ -6,6 +6,16 @@ Fișier viu, scris pentru Lucian, în limbaj normal.
 
 ---
 
+### 22-09 — RF-MOTION-01 acceptat local
+
+Deplasarea world-space este implementată pentru `active=true`, cu traseu determinist stație ↔ punct de lucru, integrator plafonat la 64 ms, continuitate între poll-uri, freeze terminal, reduced-motion și visibility handling. Hit target-urile și handoff-urile urmează poziția curentă, iar lista DOM exprimă moving/stationary.
+
+Dovezi: 16/16 teste țintite; suită completă 743 total, 739 pass, 0 fail, 4 skip; `git diff --check` PASS; detector Impeccable `[]`; browser live 2 active și 29,41 px în 300 ms; terminal 0 active, idleDistance=0 și runDrawGrowth=0; consolă 0 errors / 0 warnings; Reviewer fresh ACCEPT. Lucian a autorizat publicarea, executată prin checkpointul curent.
+
+### 22-09 — RF-MOTION-01 pornit
+
+Lucian a autorizat deplasarea reală a Pawn-urilor. Contractul păstrează adevărul operațional: numai `active=true` se deplasează între postul stabil și un punct de lucru; terminal/stale/reduced-motion se opresc. Motion state rămâne stabil între poll-uri, hit target-urile și handoff-urile urmează poziția curentă, iar dovada finală trebuie să includă browser live și terminal. Se aplică `ai-native-sdlc`, `impeccable` și `playwright-cli`; commit/push rămân gate separat.
+
 ### 22-09 — RF-ASSET-01a acceptat local
 
 Livrate manifestul versionat cu exact 28 URL-uri și verificatorul local default/strict, fără includerea imaginilor Tiny Swords. Ciclul complet Coder → Tester → Reviewer a găsit și corectat două defecte reale înainte de acceptare: ordinea ordinală a manifestului și respingerea căilor absolute sub root.

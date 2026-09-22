@@ -47,6 +47,10 @@ Sunt livrate:
 
 Release-ul principal este `861fe57`, cu review final ACCEPT / Merge OK și 723 pass / 0 fail / 3 skip din 726.
 
+## Intent livrat: RF-MOTION-01
+
+Pawn-urile confirmate `active=true` se deplasează acum vizibil între postul stabil și un punct de lucru, iar terminal/stale/reduced-motion rămân oprite. Mișcarea nu inventează taskuri sau progres, a fost demonstrată live și terminal în browser și este publicată prin checkpointul curent.
+
 ## Intent livrat: RF-ASSET-01a
 
 Dependențele vizuale sunt acum inventariate și verificabile local fără redistribuirea Tiny Swords. Manifestul versionat și verificatorul local sunt acceptate și publicate prin checkpointul curent. UI notice și fallback-urile legacy rămân lot separat neautorizat.

@@ -44,9 +44,9 @@ function world({ reduceMotion = false } = {}) {
     frame: null, dash: [], fillStyle: '', strokeStyle: '', lineWidth: 0, font: '', textAlign: '',
     setTransform() {},
     clearRect() { this.frame = { images: [], strokes: [], arcs: [], texts: [] }; },
-    fillRect() {}, strokeRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, quadraticCurveTo() {}, closePath() {},
+    fillRect() {}, strokeRect() {}, beginPath() { this.path = []; }, moveTo(x, y) { this.path.push({ x, y }); }, lineTo(x, y) { this.path.push({ x, y }); }, quadraticCurveTo() {}, closePath() {},
     setLineDash(value) { this.dash = [...value]; },
-    stroke() { this.frame.strokes.push({ dash: [...this.dash], color: this.strokeStyle }); },
+    stroke() { this.frame.strokes.push({ dash: [...this.dash], color: this.strokeStyle, path: [...(this.path || [])] }); },
     arc(x, y, radius) { this.frame.arcs.push({ x, y, radius, color: this.fillStyle }); },
     fill() {}, fillText(text, x, y) { this.frame.texts.push({ text, x, y }); }, strokeText() {},
     measureText(text) { return { width: String(text).length * 7 }; },
@@ -57,7 +57,7 @@ function world({ reduceMotion = false } = {}) {
     'map-zoom-in': new Element(), 'map-zoom-out': new Element(), 'map-reset': new Element(), 'map-zoom-value': new Element(),
   };
   elements['world-canvas'].getContext = () => context;
-  const listeners = {}; const events = []; let rafId = 0; const rafRequests = []; const cancelled = [];
+  const listeners = {}; const documentListeners = {}; const events = []; let rafId = 0; const rafRequests = []; const cancelled = []; let now = 0; let hidden = false;
   const window = {
     devicePixelRatio: 1,
     matchMedia: () => ({ matches: reduceMotion }),
@@ -83,8 +83,13 @@ function world({ reduceMotion = false } = {}) {
     addEventListener() {}
   }
   const sandbox = {
-    document: { getElementById: (id) => elements[id] || null, createElement: () => new Element() },
-    window, CustomEvent, Image, performance: { now: () => 0 }, console,
+    document: {
+      getElementById: (id) => elements[id] || null,
+      createElement: () => new Element(),
+      get hidden() { return hidden; },
+      addEventListener(type, fn) { (documentListeners[type] || (documentListeners[type] = [])).push(fn); },
+    },
+    window, CustomEvent, Image, performance: { now: () => now }, console,
     requestAnimationFrame(callback) { const id = ++rafId; rafRequests.push({ id, callback }); return id; },
     cancelAnimationFrame(id) { cancelled.push(id); },
   };
@@ -93,6 +98,8 @@ function world({ reduceMotion = false } = {}) {
   return {
     context, elements, events, listeners, window, rafRequests, cancelled,
     emit(type, detail) { window.dispatchEvent(new CustomEvent(type, { detail })); },
+    runRaf(index, timestamp) { now = timestamp; rafRequests[index].callback(timestamp); },
+    setHidden(value) { hidden = value; for (const fn of documentListeners.visibilitychange || []) fn(); },
   };
 }
 
@@ -100,6 +107,12 @@ function goldImages(app) { return app.context.frame.images.filter((entry) => ent
 function spriteImages(app, file) { return app.context.frame.images.filter((entry) => entry.src === `/sprites/${file}`); }
 function listButtons(app) { return app.elements['world-pawn-list'].children.filter((child) => child.attributes.has('aria-pressed')); }
 function uniqueNodeId(index) { return index.toString(16).padStart(64, '0'); }
+function pawnCenter(app, file = 'pawn-run.png') {
+  const image = spriteImages(app, file).at(-1);
+  assert.ok(image, `current frame must draw ${file}`);
+  const [, , , , left, top, width, height] = image.args;
+  return { x: left + width / 2, y: top + height / 2 };
+}
 
 test('sprites use real source frames and preserve native building aspect ratios', () => {
   const app = world();
@@ -269,4 +282,123 @@ test('world builds safe DOM without innerHTML', () => {
   app.emit('rpg:pi-mission-board', { board: board(kingdom([hostile]), [mission([proof(hex('d'), '<svg>')])]), missionId: hex('1'), proofRef: null });
   assert.equal(app.elements['world-pawn-list'].textContent.includes('<img src=x onerror=PRIVATE>'), true);
   assert.equal(app.elements['world-pawn-list'].children.length, 3);
+});
+
+test('an active Pawn moves on both axes with the run sprite and caps a long frame delta at 64 ms', () => {
+  const app = world();
+  const moving = node(hex('b'), { rank: 'direct', relation: 'direct', active: true });
+  app.emit('rpg:pi-mission-board', { board: board(kingdom([moving]), [mission()]), missionId: hex('1'), proofRef: null });
+  app.runRaf(0, 0);
+  const start = pawnCenter(app);
+  app.runRaf(1, 640);
+  const capped = pawnCenter(app);
+  assert.notEqual(capped.x, start.x, 'the Pawn changes horizontal screen position');
+  assert.notEqual(capped.y, start.y, 'the Pawn changes vertical screen position');
+  assert.ok(Math.hypot(capped.x - start.x, capped.y - start.y) <= 6.1, 'a 640 ms pause advances no farther than the 64 ms cap');
+  assert.ok(spriteImages(app, 'pawn-run.png').length > 0, 'active motion uses the run sheet');
+});
+
+test('active motion ping-pongs at segment endpoints without leaving its short station/work route', () => {
+  const app = world();
+  const moving = node(hex('b'), { rank: 'direct', relation: 'direct', active: true });
+  app.emit('rpg:pi-mission-board', { board: board(kingdom([moving]), [mission()]), missionId: hex('1'), proofRef: null });
+  const centers = [];
+  for (let index = 0; index < 22; index += 1) {
+    app.runRaf(index, index * 64);
+    centers.push(pawnCenter(app));
+  }
+  const horizontalSteps = centers.slice(1).map((point, index) => Math.sign(point.x - centers[index].x)).filter(Boolean);
+  assert.ok(horizontalSteps.includes(1) && horizontalSteps.includes(-1), 'horizontal travel reverses after reaching an endpoint');
+  assert.ok(Math.max(...centers.map((point) => point.x)) - Math.min(...centers.map((point) => point.x)) <= 35, 'the Pawn remains within its route horizontal bounds');
+  assert.ok(Math.max(...centers.map((point) => point.y)) - Math.min(...centers.map((point) => point.y)) <= 30, 'the Pawn remains within its route vertical bounds');
+});
+
+test('repeated active polls retain current position and do not create concurrent RAF callbacks', () => {
+  const app = world();
+  const moving = node(hex('b'), { rank: 'direct', relation: 'direct', active: true });
+  const currentBoard = board(kingdom([moving]), [mission()]);
+  app.emit('rpg:pi-mission-board', { board: currentBoard, missionId: hex('1'), proofRef: null });
+  app.runRaf(0, 0); app.runRaf(1, 64);
+  const beforePoll = pawnCenter(app);
+  const queuedBeforePoll = app.rafRequests.length;
+  app.emit('rpg:pi-mission-board', { board: currentBoard, missionId: hex('1'), proofRef: null });
+  assert.deepEqual(pawnCenter(app), beforePoll, 'a redraw caused by the same active snapshot does not reset to station');
+  assert.equal(app.rafRequests.length, queuedBeforePoll, 'the outstanding RAF is reused rather than duplicated');
+  app.runRaf(2, 128);
+  assert.notDeepEqual(pawnCenter(app), beforePoll, 'the retained route continues on its next frame');
+});
+
+test('terminal and stale/inactive snapshots are stationary, freeze the final position, and stop animation', () => {
+  const app = world();
+  const id = hex('b'); const active = node(id, { rank: 'direct', relation: 'direct', active: true });
+  app.emit('rpg:pi-mission-board', { board: board(kingdom([active]), [mission()]), missionId: hex('1'), proofRef: null });
+  app.runRaf(0, 0); app.runRaf(1, 64);
+  const finalPosition = pawnCenter(app);
+  const inactive = node(id, { rank: 'direct', relation: 'direct', lifecycle: 'completed', active: false });
+  app.emit('rpg:pi-mission-board', { board: board(kingdom([inactive]), [mission()]), missionId: hex('1'), proofRef: null });
+  assert.deepEqual(pawnCenter(app, 'pawn-idle.png'), finalPosition, 'terminal transition preserves the last motion position');
+  assert.ok(app.cancelled.includes(3), 'the pending RAF is cancelled when no Pawn remains active');
+  app.emit('rpg:pi-mission-board', { board: board(kingdom([inactive]), [mission()]), missionId: hex('1'), proofRef: null });
+  assert.deepEqual(pawnCenter(app, 'pawn-idle.png'), finalPosition, 'later inactive polls remain frozen');
+
+  const stale = world();
+  stale.emit('rpg:pi-mission-board', { board: board(kingdom([node(hex('c'), { active: false })], { freshness: 'stale' }), [mission()]), missionId: hex('1'), proofRef: null });
+  assert.equal(stale.rafRequests.length, 0);
+  assert.match(listButtons(stale)[0].textContent, /stationary/);
+});
+
+test('reduced motion stays at station with idle rendering and stationary DOM wording', () => {
+  const app = world({ reduceMotion: true });
+  const moving = node(hex('a'), { active: true });
+  app.emit('rpg:pi-mission-board', { board: board(kingdom([moving]), [mission()]), missionId: hex('1'), proofRef: null });
+  assert.equal(app.rafRequests.length, 0);
+  assert.equal(spriteImages(app, 'pawn-run.png').length, 0);
+  assert.deepEqual(pawnCenter(app, 'pawn-idle.png'), { x: 400, y: 300 });
+  assert.match(listButtons(app)[0].textContent, /stationary/);
+});
+
+test('hidden documents freeze motion and visible documents resume active motion without a paused-tab jump', () => {
+  const app = world();
+  const moving = node(hex('b'), { rank: 'direct', relation: 'direct', active: true });
+  app.emit('rpg:pi-mission-board', { board: board(kingdom([moving]), [mission()]), missionId: hex('1'), proofRef: null });
+  app.runRaf(0, 0); app.runRaf(1, 64);
+  const frozen = pawnCenter(app);
+  app.setHidden(true);
+  assert.ok(app.cancelled.includes(3), 'hiding cancels the pending animation frame');
+  assert.deepEqual(pawnCenter(app, 'pawn-idle.png'), frozen, 'hiding does not move the Pawn');
+  app.setHidden(false);
+  app.runRaf(3, 10000);
+  assert.deepEqual(pawnCenter(app), frozen, 'the first visible frame establishes time instead of consuming hidden-tab elapsed time');
+  app.runRaf(4, 10064);
+  assert.ok(Math.hypot(pawnCenter(app).x - frozen.x, pawnCenter(app).y - frozen.y) <= 6.1, 'resumed frame remains bounded');
+});
+
+test('removed Pawn motion is discarded, and a reappearing inactive Pawn starts at its deterministic station', () => {
+  const app = world();
+  const id = hex('a'); const active = node(id, { active: true });
+  app.emit('rpg:pi-mission-board', { board: board(kingdom([active]), [mission()]), missionId: hex('1'), proofRef: null });
+  app.runRaf(0, 0); app.runRaf(1, 64);
+  assert.notDeepEqual(pawnCenter(app), { x: 400, y: 300 });
+  app.emit('rpg:pi-mission-board', { board: board(kingdom([]), [mission()]), missionId: hex('1'), proofRef: null });
+  const returned = node(id, { lifecycle: 'completed', active: false });
+  app.emit('rpg:pi-mission-board', { board: board(kingdom([returned]), [mission()]), missionId: hex('1'), proofRef: null });
+  assert.deepEqual(pawnCenter(app, 'pawn-idle.png'), { x: 400, y: 300 });
+});
+
+test('current moved Pawn centers drive hit selection and confirmed handoff endpoints', () => {
+  const app = world();
+  const fromId = hex('a'); const toId = hex('b');
+  const nodes = [node(fromId, { active: true }), node(toId, { rank: 'direct', relation: 'direct', active: true })];
+  const selectedMission = mission([], { handoffs: [{ fromRunId: fromId, toRunId: toId, at: 1, basis: 'temporal_sequence' }] });
+  app.emit('rpg:pi-mission-board', { board: board(kingdom(nodes), [selectedMission]), missionId: selectedMission.id, proofRef: null });
+  app.runRaf(0, 0); app.runRaf(1, 64);
+  const pawnDraws = app.context.frame.images.filter((entry) => entry.src === '/sprites/pawn-run.png');
+  const centers = pawnDraws.map((entry) => ({ x: entry.args[4] + entry.args[6] / 2, y: entry.args[5] + entry.args[7] / 2 }));
+  const handoff = app.context.frame.strokes.find((stroke) => stroke.dash.join(',') === '9,6');
+  assert.deepEqual(handoff.path[0], centers[0], 'handoff starts at the moved source center');
+  assert.deepEqual(handoff.path.at(-1), centers[1], 'handoff ends at the moved destination center');
+  app.elements['world-canvas'].fire('pointerdown', { clientX: centers[1].x, clientY: centers[1].y });
+  app.elements['world-canvas'].fire('pointerup', { clientX: centers[1].x, clientY: centers[1].y });
+  assert.equal(app.events.filter((event) => event.type === 'rpg:world-pi-select').at(-1).detail.nodeId, toId);
+  assert.match(listButtons(app)[0].textContent, /moving between station and work/);
 });
