@@ -6,6 +6,34 @@ Fișier viu, scris pentru Lucian, în limbaj normal.
 
 ---
 
+### 22-09 — Decizie de scară și RF-ASSET-01
+
+Lucian a eliminat ținta nerealistă de 5 proiecte active simultan. Validarea viitoare se face pe proiectele active disponibile în utilizarea reală; multi-regatul se construiește numai dacă această utilizare îl justifică.
+
+Lucian a autorizat separat un checkpoint GitHub pentru munca publicabilă existentă și pornirea RF-ASSET-01. Primul lot de implementare este limitat la două livrabile: manifestul versionat al asset-urilor și verificatorul local care raportează lipsuri sau nepotriviri fără să copieze Tiny Swords. Notice-ul UI și fallback-urile legacy rămân deschise pentru lotul următor.
+
+### 22-09 — RF-LIVE-01 pornit
+
+Lucian a autorizat continuarea. Planner-ul a configurat local mission root-ul explicit fără să afișeze valori din `.env`, a pornit serverul 5311 și a verificat HTTP 200. Nu se instalează reporter global, nu se modifică date reale și nu există autorizare de commit/push.
+
+Prima lansare Reviewer a fost oprită imediat deoarece Planner-ul nu fixase explicit modelul copilului. Regula reconfirmată de Lucian este: numai Planner-ul folosește GPT-5.6 Sol/high; orice agent sau subagent folosește GPT-5.6 Terra/medium. Proba a fost relansată corect cu override explicit.
+
+În timpul execuției corecte, API-ul kingdom a raportat `ready/fresh`, 2 noduri active și 0 active non-running. Mission board-ul a fost `ready`, fără warnings sau truncare. După finalizare, cele 2 noduri sunt `completed`, proiecția este `stale` și `active=0`.
+
+Reviewer-ul a blocat corect continuarea pentru că `TASKS.md` fusese actualizat la starea în curs, dar `instructiuni.md`, `HANDOFF.md`, `spec.md` și `GATES.md` păstrau încă starea preflight. Verdictul integral este în `docs/handoff/RF-LIVE-01-probe-reviewer-raport.md`. Planner-ul a acceptat P1 și a reconciliat toate documentele active înainte de reluarea validării browser.
+
+Al doilea review a găsit încă un rând stale în `HANDOFF.md` care spunea că mission root-ul lipsește. Finding-ul a fost corect, rândul a fost reparat, iar review-ul r3 a dat ACCEPT fără findings și fără autorizare de publicare.
+
+Validarea finală RF-LIVE-01 este verde: browser desktop și 390×844 fără overflow, `main.scrollLeft=0`, drawer cu `aria-modal`, `inert`, focus trap, Escape și focus restoration, consolă 0 errors/0 warnings. Scanarea celor două API-uri a găsit 0 chei interzise și 0 pattern-uri private; DOM-ul nu conține căi private. Misiunea selectată a avut exact 12 proofs în API, 12 controale în vault și 12 în alternativa DOM; nu există acțiune Open/Reveal. Testele relevante au trecut 43/43, iar `git diff --check` a ieșit 0.
+
+RF-LIVE-01 este închis și acceptat. Serverul 5311 rămâne pornit pentru vizualizare, conform cererii lui Lucian. Nu s-a schimbat codul produsului, nu s-a instalat reporter, nu s-au migrat date și nu s-a făcut commit sau push.
+
+### 22-09 — Reset de context pentru un flow nou
+
+Lucian a oprit temporar configurarea live Pi deoarece contextul devenise prea mare și contradictoriu pentru un agent nou. Am deschis RF-DOC-RESET-01 și am verificat din nou starea reală înainte de rescriere: GitHub și checkout-ul erau sincronizate la `a618722`, serverul 5311 era oprit, root-ul Pi pentru run-uri era deja setat local, mission root-ul lipsea, nu exista niciun run activ, iar mission store-ul proiectului exista. Nu am afișat valorile `.env` și nu am pornit serverul.
+
+Am arhivat documentele vechi și am rescris sursele active astfel încât un agent nou să citească numai `instructiuni.md`, `HANDOFF.md`, `TASKS.md` și `GATES.md`. Primul review a blocat corect o contradicție: RF-LIVE-01 era numit simultan activ și nepornit. Am reparat formularea, iar re-review-ul fresh a dat ACCEPT / OK, fără P0/P1/P2. RF-DOC-RESET-01 este închis. Următorul task este RF-LIVE-01: conectare read-only la artefactele Pi și demonstrarea unui workflow real. Reporterul global, migrările, redesignul, commitul și push-ul rămân în afara autorizării curente.
+
 ### 19-09 — English-only și publicare sigură
 
 Lucian a clarificat că RPG Factory nu are public din România: tot produsul și repo-ul public trebuie să fie în engleză. Am deschis RF-L10N-01 cu un contract explicit pentru UI-ul nou, jocul legacy, mesajele runtime/API, codul activ și documentația publică. Nu traducem automat datele utilizatorului, nu schimbăm migrațiile deja aplicate și nu rescriem rapoartele istorice — acestea sunt evidență, nu produs livrat.
