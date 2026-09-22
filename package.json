@@ -7,6 +7,8 @@
   },
   "scripts": {
     "start": "node --env-file=.env server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "assets:verify": "node scripts/verify-assets.js",
+    "assets:verify:strict": "node scripts/verify-assets.js --strict"
   }
 }

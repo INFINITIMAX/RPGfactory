@@ -24,7 +24,7 @@ Produsul actual livrează:
 
 Release-ul este publicat și acceptat. `RF-LIVE-01` este închis: roots read-only sunt configurate explicit, serverul 5311 rulează, iar proba Pi a fost verificată live și după terminare. În timpul run-ului, API-ul și browserul au arătat `ready/fresh`, 2 noduri `running` active și 0 active non-running; după terminare au arătat 2 noduri `completed` și `active=0`.
 
-**Nu există un task nou autorizat.** Serverul rămâne pornit pentru vizualizare; backlog-ul nu pornește automat.
+**Nu există un task nou autorizat.** `RF-ASSET-01a` este închis cu ACCEPT și publicat prin checkpointul curent: manifest 28/28, verificator default/strict, clean-clone probat, 735 teste cu 0 fail și Reviewer ACCEPT. `RF-ASSET-01b` (notice UI + fallback-uri legacy) rămâne deschis și neautorizat. Serverul 5311 rămâne pornit pentru vizualizare.
 
 ---
 

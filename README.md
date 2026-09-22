@@ -46,6 +46,15 @@ npm test
 
 Tests use temporary storage and ephemeral ports. Environment-dependent symlink coverage may be skipped on Windows when the OS denies symlink creation.
 
+## Asset verification
+
+```powershell
+npm run assets:verify
+npm run assets:verify:strict
+```
+
+The versioned asset manifest records the expected local files and their licenses. The default check permits restricted Tiny Swords assets to be absent in a clean clone; strict mode rejects every absent or mismatched asset. The verifier never downloads, copies, or installs restricted art.
+
 ## Architecture
 
 - Native Node.js HTTP server

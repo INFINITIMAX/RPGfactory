@@ -6,6 +6,12 @@ Fișier viu, scris pentru Lucian, în limbaj normal.
 
 ---
 
+### 22-09 — RF-ASSET-01a acceptat local
+
+Livrate manifestul versionat cu exact 28 URL-uri și verificatorul local default/strict, fără includerea imaginilor Tiny Swords. Ciclul complet Coder → Tester → Reviewer a găsit și corectat două defecte reale înainte de acceptare: ordinea ordinală a manifestului și respingerea căilor absolute sub root.
+
+Dovezi finale Planner: 28/28 asset-uri locale verificate; clean clone cu 27 `optional-missing` acceptat implicit și respins strict; 735 teste totale, 731 pass, 0 fail, 4 skip; `git diff --check` PASS; zero asset-uri restricționate tracked/staged; scanul setului publicabil are zero markeri sensibili. Reviewer fresh: ACCEPT. Lucian a autorizat publicarea, executată prin checkpointul curent. RF-ASSET-01b rămâne neautorizat.
+
 ### 22-09 — Decizie de scară și RF-ASSET-01
 
 Lucian a eliminat ținta nerealistă de 5 proiecte active simultan. Validarea viitoare se face pe proiectele active disponibile în utilizarea reală; multi-regatul se construiește numai dacă această utilizare îl justifică.

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "licenses": {
+    "OFL-1.1": {
+      "sourceUrl": "https://github.com/google/fonts/tree/main/ofl/grenze",
+      "redistributable": true,
+      "requiredInCleanClone": true
+    },
+    "Tiny-Swords-Custom": {
+      "sourceUrl": "https://pixelfrog-assets.itch.io/tiny-swords",
+      "redistributable": false,
+      "requiredInCleanClone": false
+    }
+  },
+  "assets": [
+    { "publicPath": "/fonts/grenze-variable.ttf", "localPath": "public/fonts/grenze-variable.ttf", "licenseId": "OFL-1.1", "redistributable": true, "requiredInCleanClone": true, "bytes": 139860, "sha256": "04afa4836bcd41e1ff9867a0dc27d628d31ddec618ec67715c526ebc3cae92f4", "width": null, "height": null },
+    { "publicPath": "/sprites/building-archery.png", "localPath": "public/sprites/building-archery.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 10177, "sha256": "04880ff5af0965f66777e87d4229782f2090233da79f08170cf9240eda3881d9", "width": 192, "height": 256 },
+    { "publicPath": "/sprites/building-barracks.png", "localPath": "public/sprites/building-barracks.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 9968, "sha256": "8d4658300cbab598ad9a18855c48305935a95870259bbcf8d25bf2ab00f613b4", "width": 192, "height": 256 },
+    { "publicPath": "/sprites/building-castle.png", "localPath": "public/sprites/building-castle.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 17136, "sha256": "a4ec9de93fbe416359043cc6b58a32119b08c7623ef2e09b3aef9d3adf439c1b", "width": 320, "height": 256 },
+    { "publicPath": "/sprites/building-house-1.png", "localPath": "public/sprites/building-house-1.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 5312, "sha256": "f68fbce236ca663e2c1d86484f4617586bc99f4f9b634c493e62fa7eeece5c63", "width": 128, "height": 192 },
+    { "publicPath": "/sprites/building-house-2.png", "localPath": "public/sprites/building-house-2.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 5938, "sha256": "21e35d4d47e778c996cc56d95170908f663ca8858f08a6f8637fa15c1236448f", "width": 128, "height": 192 },
+    { "publicPath": "/sprites/building-house-3.png", "localPath": "public/sprites/building-house-3.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 4390, "sha256": "e2be60c4202ceffb55a6d06851ab6b08ffb530867e64da19ae578b09d18097fd", "width": 128, "height": 192 },
+    { "publicPath": "/sprites/building-monastery.png", "localPath": "public/sprites/building-monastery.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 11326, "sha256": "19ceee020215c572f9365f27ee5bd35cd52e17f796d81b082f16206e0ea7da5c", "width": 192, "height": 320 },
+    { "publicPath": "/sprites/building-watchtower.png", "localPath": "public/sprites/building-watchtower.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 6535, "sha256": "ac0f01128d951c9da4cfe811af175a35868b6d91cdda04fabbe9dcf909caf868", "width": 128, "height": 256 },
+    { "publicPath": "/sprites/bush.png", "localPath": "public/sprites/bush.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 3967, "sha256": "38ea6583e856d4670ce43b843aaa3ef3e675b351b02353118f04b01ba3daa4eb", "width": 1024, "height": 128 },
+    { "publicPath": "/sprites/gold-stone.png", "localPath": "public/sprites/gold-stone.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 802, "sha256": "df483cb036e04f1fcae32b269e2a33bdca2e4da0a5c067c4f0d44aa70140a658", "width": 128, "height": 128 },
+    { "publicPath": "/sprites/pawn-idle.png", "localPath": "public/sprites/pawn-idle.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 6656, "sha256": "175027379188ef41c59301ac2d0dadf90d3a04d25eb1af8f65c1212b2fb934d6", "width": 1536, "height": 192 },
+    { "publicPath": "/sprites/pawn-interact-axe.png", "localPath": "public/sprites/pawn-interact-axe.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 8057, "sha256": "b09914c904f397fdddd717b76bf739489303d48acc98204b38b699095b1b82b3", "width": 1152, "height": 192 },
+    { "publicPath": "/sprites/pawn-interact-pickaxe.png", "localPath": "public/sprites/pawn-interact-pickaxe.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 8508, "sha256": "e1ccaf5dbc94b657c5c1c3d63e73b7913b4030c967f1462ce54bb06a108852c9", "width": 1152, "height": 192 },
+    { "publicPath": "/sprites/pawn-run-axe.png", "localPath": "public/sprites/pawn-run-axe.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 7175, "sha256": "362a85a7f22c2690feed0a68d7a4dfc5561b44b270b23fabe91e6d6b47e01e35", "width": 1152, "height": 192 },
+    { "publicPath": "/sprites/pawn-run-pickaxe.png", "localPath": "public/sprites/pawn-run-pickaxe.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 6879, "sha256": "8183f0de43855731a2f5daab9ef19d5be389f973294f7d3a1c8c465342918e36", "width": 1152, "height": 192 },
+    { "publicPath": "/sprites/pawn-run.png", "localPath": "public/sprites/pawn-run.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 6078, "sha256": "ad825172a8bf25076f4a817e7dbf8ded33ceb297377ee76e4f2c989a684af3a5", "width": 1152, "height": 192 },
+    { "publicPath": "/sprites/rock-1.png", "localPath": "public/sprites/rock-1.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 577, "sha256": "de9f1d954577003e278bae7ee71338c76b4799c9aabf34a002219ca2c67c7c00", "width": 64, "height": 64 },
+    { "publicPath": "/sprites/rock1.png", "localPath": "public/sprites/rock1.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 577, "sha256": "de9f1d954577003e278bae7ee71338c76b4799c9aabf34a002219ca2c67c7c00", "width": 64, "height": 64 },
+    { "publicPath": "/sprites/rock2.png", "localPath": "public/sprites/rock2.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 805, "sha256": "a121425512ad1cf3a10b5731f507beed83507d2e7b5d180aa32f0d967e81299c", "width": 64, "height": 64 },
+    { "publicPath": "/sprites/terrain-tilemap.png", "localPath": "public/sprites/terrain-tilemap.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 40222, "sha256": "3ae8f00b92b4ecd46b63b14ad4117fdda42afcf485f340724db033f0e229be8e", "width": 576, "height": 384 },
+    { "publicPath": "/sprites/tower.png", "localPath": "public/sprites/tower.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 6535, "sha256": "ac0f01128d951c9da4cfe811af175a35868b6d91cdda04fabbe9dcf909caf868", "width": 128, "height": 256 },
+    { "publicPath": "/sprites/tree-1.png", "localPath": "public/sprites/tree-1.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 16015, "sha256": "ee3f285f992842987df5aae0e07a364a7a535e78d605f6d469115559e87df7e5", "width": 1536, "height": 256 },
+    { "publicPath": "/sprites/tree-2.png", "localPath": "public/sprites/tree-2.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 17892, "sha256": "62de877a4732bee98e170c1a4aac44c3bd39929205923176a4acbec812d2630a", "width": 1536, "height": 256 },
+    { "publicPath": "/sprites/tree.png", "localPath": "public/sprites/tree.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 16015, "sha256": "ee3f285f992842987df5aae0e07a364a7a535e78d605f6d469115559e87df7e5", "width": 1536, "height": 256 },
+    { "publicPath": "/ui/button-pressed.png", "localPath": "public/ui/button-pressed.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 1297, "sha256": "8493bad77adad5eaa0c4cfbb9d986e9e174e27563d563ceaa0d410ba7e4105fe", "width": 128, "height": 128 },
+    { "publicPath": "/ui/button-regular.png", "localPath": "public/ui/button-regular.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 1419, "sha256": "d0c41e7710bc76ea927f462d483eea3f51ac8288bb532513040347818a7e6f86", "width": 128, "height": 128 },
+    { "publicPath": "/ui/panel-paper.png", "localPath": "public/ui/panel-paper.png", "licenseId": "Tiny-Swords-Custom", "redistributable": false, "requiredInCleanClone": false, "bytes": 2659, "sha256": "4a91bbde509af741580e514961ed25dd309695536046536b600ab63bec080a1e", "width": 320, "height": 320 }
+  ]
+}

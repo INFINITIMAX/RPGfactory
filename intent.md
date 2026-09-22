@@ -47,9 +47,13 @@ Sunt livrate:
 
 Release-ul principal este `861fe57`, cu review final ACCEPT / Merge OK și 723 pass / 0 fail / 3 skip din 726.
 
+## Intent livrat: RF-ASSET-01a
+
+Dependențele vizuale sunt acum inventariate și verificabile local fără redistribuirea Tiny Swords. Manifestul versionat și verificatorul local sunt acceptate și publicate prin checkpointul curent. UI notice și fallback-urile legacy rămân lot separat neautorizat.
+
 ## Intent operațional închis: RF-LIVE-01
 
-Produsul livrat este conectat read-only la roots Pi reale. Execuțiile de probă au demonstrat starea API și browser live/terminală, iar gate-urile sunt închise. Nu există un intent operațional nou autorizat.
+Produsul livrat este conectat read-only la roots Pi reale. Execuțiile de probă au demonstrat starea API și browser live/terminală, iar gate-urile sunt închise.
 
 Succesul înseamnă:
 
