@@ -14,7 +14,7 @@ Lotul s-a închis tehnic pe 20-09-2026. Producția are zero linii cu diacritice 
 
 Tot Lucian a decis că munca publicabilă care există numai local trebuie să ajungă pe GitHub. Manifestul final a avut exact 45 de fișiere și a trecut scanarea: zero paths interzise și zero markeri privați după generalizarea unui exemplu local. Au fost excluse `.env`, bazele și sesiunile reale, logurile, inspirația privată, capturile/artefactele temporare și asset-urile Tiny Swords care nu pot fi redistribuite brut.
 
-Commitul `861fe57` (`Ship live mission citadel and English UI`) a fost creat după testele și review-ul final, apoi publicat pe `origin/master`. Remote și local coincid, ahead/behind 0/0, staging gol. Configurarea Pi live cerută anterior rămâne pusă pe pauză și `.env` nu a fost schimbat. RF-K01d, RF-K02 și RF-L10N-01 sunt acum pe GitHub.
+Commitul `861fe57` (`Ship live mission citadel and English UI`) a fost creat după testele și review-ul final, apoi publicat pe `origin/master`. Commitul documentar `881a293` (`Record citadel release status`) a publicat statusul final. Verificarea directă a confirmat HEAD, `origin/master` și GitHub identice, ahead/behind 0/0 și staging gol. Serverul 5311 este acum oprit. Configurarea Pi live nu a fost făcută și `.env` nu a fost schimbat. RF-K01d, RF-K02 și RF-L10N-01 sunt pe GitHub.
 
 ### 19-09 — RF-K02 închis: cetatea ocupă în sfârșit ecranul
 
